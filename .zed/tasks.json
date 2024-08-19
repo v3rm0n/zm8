@@ -1,0 +1,14 @@
+[
+  {
+    "label": "Zig Run",
+    "command": "zig build run"
+  },
+  {
+    "label": "Zig test",
+    "command": "zig test $ZED_FILE"
+  },
+  {
+    "label": "Zig Build",
+    "command": "zig build"
+  }
+]

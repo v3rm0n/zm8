@@ -1,24 +1,17 @@
 const std = @import("std");
+const GUI = @import("gui.zig");
+const USB = @import("usb.zig");
 const SDL = @import("sdl2");
 
 pub fn main() !void {
-    try SDL.init(.{
-        .video = true,
-        .events = true,
-        .audio = true,
-    });
-    defer SDL.quit();
+    if (!USB.listDevices()) {
+        return;
+    }
+    const usb = try USB.init();
+    defer usb.destroy();
 
-    var window = try SDL.createWindow(
-        "SDL2 Wrapper Demo",
-        .{ .centered = {} }, .{ .centered = {} },
-        640, 480,
-        .{ .vis = .shown },
-    );
-    defer window.destroy();
-
-    var renderer = try SDL.createRenderer(window, null, .{ .accelerated = true });
-    defer renderer.destroy();
+    const gui = try GUI.init(true);
+    defer gui.destroy();
 
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {
@@ -28,16 +21,6 @@ pub fn main() !void {
             }
         }
 
-        try renderer.setColorRGB(0xF7, 0xA4, 0x1D);
-        try renderer.clear();
-
-        renderer.present();
+        try usb.handleEvents();
     }
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
 }
