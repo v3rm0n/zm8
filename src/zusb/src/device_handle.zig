@@ -23,6 +23,9 @@ pub const DeviceHandle = struct {
     }
 
     pub fn claimInterface(self: *DeviceHandle, iface: u8) err.Error!void {
+        if (c.libusb_kernel_driver_active(self.raw, @as(c_int, iface))) {
+            c.libusb_detach_kernel_driver(self.raw, @as(c_int, iface));
+        }
         try err.failable(c.libusb_claim_interface(self.raw, @as(c_int, iface)));
         self.interfaces |= @as(u256, 1) << iface;
     }
@@ -117,6 +120,62 @@ pub const DeviceHandle = struct {
         );
 
         if (ret == 0 or ret == c.LIBUSB_ERROR_INTERRUPTED and transferred > 0) {
+            return @intCast(transferred);
+        } else {
+            return err.errorFromLibusb(ret);
+        }
+    }
+
+    pub fn readBulk(
+        self: DeviceHandle,
+        endpoint: u8,
+        buf: []u8,
+        timeout_ms: u64,
+    ) (error{Overflow} || err.Error)!usize {
+        if (endpoint & c.LIBUSB_ENDPOINT_DIR_MASK != c.LIBUSB_ENDPOINT_IN) {
+            return error.InvalidParam;
+        }
+
+        var transferred: c_int = undefined;
+
+        const ret = c.libusb_bulk_transfer(
+            self.raw,
+            endpoint,
+            buf.ptr,
+            std.math.cast(c_int, buf.len) orelse return error.Overflow,
+            &transferred,
+            std.math.cast(c_uint, timeout_ms) orelse return error.Overflow,
+        );
+
+        if (ret == 0 or ret == c.LIBUSB_ERROR_TIMEOUT and transferred > 0) {
+            return @intCast(transferred);
+        } else {
+            return err.errorFromLibusb(ret);
+        }
+    }
+
+    pub fn writeBulk(
+        self: DeviceHandle,
+        endpoint: u8,
+        buf: []const u8,
+        timeout_ms: u64,
+    ) (error{Overflow} || err.Error)!usize {
+        if (endpoint & c.LIBUSB_ENDPOINT_DIR_MASK != c.LIBUSB_ENDPOINT_OUT) {
+            return error.InvalidParam;
+        }
+
+        var transferred: c_int = undefined;
+
+        const ret = c.libusb_bulk_transfer(
+            self.raw,
+            endpoint,
+            @ptrFromInt(@intFromPtr(buf.ptr)),
+            std.math.cast(c_int, buf.len) orelse return error.Overflow,
+            &transferred,
+            std.math.cast(c_uint, timeout_ms) orelse return error.Overflow,
+        );
+
+        if (ret == 0 or ret == c.LIBUSB_ERROR_TIMEOUT and transferred > 0) {
             return @intCast(transferred);
         } else {
             return err.errorFromLibusb(ret);

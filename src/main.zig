@@ -8,10 +8,10 @@ pub fn main() !void {
         return;
     }
     const usb = try USB.init();
-    defer usb.destroy();
+    defer usb.deinit();
 
-    const gui = try GUI.init(true);
-    defer gui.destroy();
+    const gui = try GUI.init(false);
+    defer gui.deinit();
 
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {

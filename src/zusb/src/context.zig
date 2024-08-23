@@ -5,9 +5,10 @@ const fromLibusb = @import("constructor.zig").fromLibusb;
 
 const err = @import("error.zig");
 
+pub const Option = enum(c_int) { LogLevel = 0, UseUsbdk = 1, NoDeviceDiscovery = 2, LogCb = 3, Max = 4 };
+
 pub const Context = struct {
     raw: *c.libusb_context,
-    var completed: c_int = undefined;
 
     pub fn init() err.Error!Context {
         var ctx: ?*c.libusb_context = null;
@@ -25,8 +26,13 @@ pub const Context = struct {
     }
 
     pub fn handleEvents(self: Context) err.Error!void {
-        var timeval = c.struct_timeval{ .tv_sec = 0, .tv_usec = 0 };
-        try err.failable(c.libusb_handle_events_timeout_completed(self.raw, &timeval, &completed));
+        try err.failable(c.libusb_handle_events(self.raw));
+    }
+
+    pub fn openDeviceWithFd(self: *Context, fd: isize) err.Error!DeviceHandle {
+        var device_handle: *c.libusb_device_handle = undefined;
+        try err.failable(c.libusb_wrap_sys_device(self.raw, fd, &device_handle));
+        return fromLibusb(DeviceHandle, .{ self, device_handle });
     }
 
     pub fn openDeviceWithVidPid(

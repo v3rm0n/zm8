@@ -37,7 +37,7 @@ pub fn init(full_screen: bool) !GUI {
     return GUI{ .window = window, .renderer = renderer, .main_texture = main_texture, .full_screen = full_screen };
 }
 
-pub fn toggleFullScreen(gui: GUI) void {
+pub fn toggleFullScreen(gui: *GUI) void {
     gui.full_screen = !gui.full_screen;
     gui.window.setFullscreen(.{ .fullscreen = gui.full_screen });
     SDL.showCursor(true);
@@ -45,7 +45,7 @@ pub fn toggleFullScreen(gui: GUI) void {
 
 pub fn drawCharacter() void {}
 
-pub fn render(gui: GUI) void {
+pub fn render(gui: *GUI) void {
     if (gui.dirty) {
         gui.dirty = 0;
         gui.renderer.setTarget(null);
@@ -57,7 +57,7 @@ pub fn render(gui: GUI) void {
     }
 }
 
-pub fn destroy(gui: GUI) void {
+pub fn deinit(gui: GUI) void {
     gui.window.destroy();
     gui.renderer.destroy();
     gui.main_texture.destroy();
