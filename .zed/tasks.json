@@ -4,6 +4,10 @@
     "command": "zig build run"
   },
   {
+    "label": "Zig Run as Superuser",
+    "command": "sudo zig build run"
+  },
+  {
     "label": "Zig test",
     "command": "zig test $ZED_FILE"
   },
