@@ -4,8 +4,8 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .sdl = .{
-            .url = "https://github.com/ikskuh/SDL.zig/archive/refs/heads/master.zip",
-            .hash = "12207864d4938fe6b9d9bda7eda7b29e8b7a68bce48de67904baa8606f3dabf21b6d",
+            .url = "https://github.com/ikskuh/SDL.zig/archive/172a84e7b5ce7d4891b8b970c68f4532f96aa7e9.zip",
+            .hash = "12203301b49b34b9b7f70326c37c4ed8c23f6326a7a406c4596911afc0971bbf1a5c",
         },
     },
     .paths = .{
