@@ -7,7 +7,7 @@ const fromLibusb = @import("constructor.zig").fromLibusb;
 const err = @import("error.zig");
 
 pub const Devices = struct {
-    ctx: *const Context,
+    ctx: *Context,
     devices: []?*c.libusb_device,
     i: usize,
 
@@ -22,11 +22,11 @@ pub const Devices = struct {
 };
 
 pub const DeviceList = struct {
-    ctx: *const Context,
+    ctx: *Context,
     list: [*c]?*c.libusb_device,
     len: usize,
 
-    pub fn init(ctx: *const Context) err.Error!DeviceList {
+    pub fn init(ctx: *Context) err.Error!DeviceList {
         var list: [*c]?*c.libusb_device = undefined;
         const n = c.libusb_get_device_list(ctx.raw, &list);
 

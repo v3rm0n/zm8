@@ -8,7 +8,7 @@ const fromLibusb = @import("constructor.zig").fromLibusb;
 const err = @import("error.zig");
 
 pub const Device = struct {
-    ctx: *const Context,
+    ctx: *Context,
     raw: *c.libusb_device,
 
     pub fn deinit(self: Device) void {

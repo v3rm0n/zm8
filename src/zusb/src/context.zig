@@ -21,7 +21,7 @@ pub const Context = struct {
         _ = c.libusb_exit(self.raw);
     }
 
-    pub fn devices(self: *const Context) err.Error!DeviceList {
+    pub fn devices(self: *Context) err.Error!DeviceList {
         return DeviceList.init(self);
     }
 

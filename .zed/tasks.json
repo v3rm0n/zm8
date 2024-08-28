@@ -8,6 +8,14 @@
     "command": "sudo zig build run"
   },
   {
+    "label": "Zig Run --list as Superuser",
+    "command": "sudo zig build run -- --list"
+  },
+  {
+    "label": "Zig Run --dev as Superuser",
+    "command": "sudo zig build run -- --dev 1:1"
+  },
+  {
     "label": "Zig test",
     "command": "zig test $ZED_FILE"
   },
