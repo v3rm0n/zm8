@@ -13,7 +13,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -23,11 +23,11 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: Run tests
-        run: zig build test
+        run: zig build test --summary all
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install dependencies
         run: brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2
       - name: Setup Zig
@@ -35,11 +35,11 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: Run tests
-        run: zig build test
+        run: zig build test --summary all
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}

@@ -16,8 +16,12 @@
     "command": "sudo zig build run -- --dev 1:1"
   },
   {
-    "label": "Zig test",
+    "label": "Zig test current file",
     "command": "zig test $ZED_FILE"
+  },
+  {
+    "label": "Zig Test",
+    "command": "zig build test"
   },
   {
     "label": "Zig Build",

@@ -19,7 +19,7 @@ size: u8 = 0,
 handler: Handler,
 state: SlipState = SlipState.Normal,
 
-pub fn init(comptime buffer: []u8, comptime handler: Handler) Slip {
+pub fn init(buffer: []u8, comptime handler: Handler) Slip {
     return Slip{ .buffer = buffer, .handler = handler };
 }
 

@@ -14,11 +14,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
-
-    exe.root_module.addImport("sdl2", sdk.getWrapperModule());
-
+    exe.root_module.addIncludePath(b.path("include"));
     exe.linkSystemLibrary("usb-1.0");
+
+    sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
+    exe.root_module.addImport("sdl2", sdk.getWrapperModule());
 
     b.installArtifact(exe);
 
@@ -34,10 +34,16 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    exe_unit_tests.root_module.addIncludePath(b.path("include"));
+    exe_unit_tests.linkSystemLibrary("usb-1.0");
+
+    sdk.link(exe_unit_tests, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
+    exe_unit_tests.root_module.addImport("sdl2", sdk.getWrapperModule());
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
