@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2 libusb
+        run: arch -arm64 brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2 libusb
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v1
         with:
