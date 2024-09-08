@@ -121,7 +121,35 @@ pub fn readSerial(self: *Self, buffer: []u8) zusb.Error!usize {
 }
 
 pub fn writeSerial(self: *Self, buffer: []u8) zusb.Error!usize {
-    return try self.device_handle.writeBulk(EP_OUT_ADDRESS, buffer, 1);
+    return try self.device_handle.writeBulk(EP_OUT_ADDRESS, buffer, 5);
+}
+
+pub fn resetDisplay(self: *Self) zusb.Error!void {
+    std.log.info("Resetting display", .{});
+    const reset = [_]u8{'R'};
+    try self.writeSerial(reset);
+}
+
+pub fn enableAndResetDisplay(self: *Self) zusb.Error!void {
+    std.log.info("Resetting display", .{});
+    const reset = [_]u8{'E'};
+    try self.writeSerial(reset);
+}
+
+pub fn disconnect(self: *Self) zusb.Error!void {
+    std.log.info("Resetting display", .{});
+    const reset = [_]u8{'D'};
+    try self.writeSerial(reset);
+}
+
+pub fn sendController(self: *Self, input: u8) zusb.Error!void {
+    std.log.info("Sending controller, input={}", .{input});
+    try self.writeSerial([_]u8{ 'C', input });
+}
+
+pub fn sendKeyjazz(self: *Self, note: u8, velocity: u8) zusb.Error!void {
+    std.log.info("Sending keyjazz. Note={}, velocity={}", .{ note, velocity });
+    try self.writeSerial([_]u8{ 'K', note, if (velocity > 0x7F) 0x7F else velocity });
 }
 
 pub fn deinit(self: *Self) void {

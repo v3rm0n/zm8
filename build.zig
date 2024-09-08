@@ -3,9 +3,9 @@ const sdl = @import("sdl");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const sdk = sdl.init(b, .{});
-
     const optimize = b.standardOptimizeOption(.{});
+
+    const sdk = sdl.init(b, .{});
 
     const exe = b.addExecutable(.{
         .name = "zm8",
@@ -14,7 +14,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.root_module.addIncludePath(b.path("include"));
     exe.linkSystemLibrary("usb-1.0");
 
     sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
@@ -39,7 +38,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe_unit_tests.root_module.addIncludePath(b.path("include"));
     exe_unit_tests.linkSystemLibrary("usb-1.0");
 
     sdk.link(exe_unit_tests, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
