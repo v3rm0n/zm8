@@ -50,6 +50,8 @@ pub fn Transfer(comptime T: type) type {
             return self.transfer.buffer[0..length];
         }
 
+        pub fn testFn() void {}
+
         pub fn fillInterrupt(
             allocator: *Allocator,
             handle: *DeviceHandle,

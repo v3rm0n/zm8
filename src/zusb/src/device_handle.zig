@@ -12,12 +12,12 @@ pub const DeviceHandle = struct {
     interfaces: u256,
 
     pub fn deinit(self: *DeviceHandle) void {
-        std.log.info("Interfaces {}", .{self.interfaces});
+        std.log.info("Deiniting device handle. Interfaces {}", .{self.interfaces});
 
         var iface: u9 = 0;
         while (iface < 256) : (iface += 1) {
             if ((self.interfaces & (@as(u256, 1) << @truncate(iface))) != 0) {
-                std.debug.print("Releasing interface {}\n", .{iface});
+                std.log.info("Releasing interface {}", .{iface});
                 _ = c.libusb_release_interface(self.raw, @as(c_int, iface));
             }
         }
@@ -25,9 +25,9 @@ pub const DeviceHandle = struct {
     }
 
     pub fn claimInterface(self: *DeviceHandle, iface: u8) err.Error!void {
-        std.debug.print("Claiming interface {}\n", .{iface});
+        std.log.info("Claiming interface {}", .{iface});
         if (c.libusb_kernel_driver_active(self.raw, @as(c_int, iface)) == 1) {
-            std.debug.print("Detaching kernel driver from interface {}\n", .{iface});
+            std.log.info("Detaching kernel driver from interface {}", .{iface});
             try err.failable(c.libusb_detach_kernel_driver(self.raw, @as(c_int, iface)));
         }
         try err.failable(c.libusb_claim_interface(self.raw, @as(c_int, iface)));
@@ -35,13 +35,18 @@ pub const DeviceHandle = struct {
     }
 
     pub fn releaseInterface(self: *DeviceHandle, iface: u8) err.Error!void {
-        std.debug.print("Releasing interface {}\n", .{iface});
+        std.log.info("Releasing interface {}", .{iface});
         try err.failable(c.libusb_release_interface(self.raw, @as(c_int, iface)));
         self.interfaces &= ~(@as(u256, 1) << iface);
     }
 
     pub fn device(self: DeviceHandle) Device {
         return fromLibusb(Device, .{ self.ctx, c.libusb_get_device(self.raw).? });
+    }
+
+    pub fn setInterfaceAltSetting(self: DeviceHandle, iface: u8, setting: u8) err.Error!void {
+        std.log.info("Setting interface {} alt setting {}", .{ iface, setting });
+        try err.failable(c.libusb_set_interface_alt_setting(self.raw, @as(c_int, iface), @as(c_int, setting)));
     }
 
     pub fn writeControl(

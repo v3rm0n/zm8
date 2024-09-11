@@ -1,5 +1,6 @@
 const std = @import("std");
 const zusb = @import("zusb/zusb.zig");
+const Audio = @import("audio.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -16,6 +17,7 @@ const Self = @This();
 allocator: std.mem.Allocator,
 context: *zusb.Context,
 device_handle: *zusb.DeviceHandle,
+audio: Audio,
 
 pub fn listDevices() !void {
     var context = zusb.Context.init() catch |err| {
@@ -49,17 +51,20 @@ pub fn listDevices() !void {
 pub fn init(allocator: std.mem.Allocator, preferred_device: ?[]u8) !Self {
     var context = try zusb.Context.init();
     var device_handle = if (preferred_device) |dev| try openPreferredDevice(&context, dev) else try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
-    std.log.info("Interfaces {}", .{device_handle.interfaces});
     try initInterface(&device_handle);
-    std.log.info("Interfaces {}", .{device_handle.interfaces});
-    const heap_handle = try allocator.create(zusb.DeviceHandle);
-    heap_handle.* = device_handle;
+
     const heap_context = try allocator.create(zusb.Context);
     heap_context.* = context;
-    return .{ .context = heap_context, .device_handle = heap_handle, .allocator = allocator };
+
+    const heap_handle = try allocator.create(zusb.DeviceHandle);
+    heap_handle.* = device_handle;
+
+    var audio = try Audio.init(allocator, 1024, heap_handle);
+    try audio.start(1024, null);
+    return .{ .context = heap_context, .device_handle = heap_handle, .allocator = allocator, .audio = audio };
 }
 
-pub fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.DeviceHandle {
+fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.DeviceHandle {
     std.log.debug("Opening with preferred device {s}\n", .{preferred_device});
 
     var split = std.mem.splitSequence(u8, preferred_device, ":");
@@ -103,17 +108,17 @@ pub fn initWithFile(file_handle: std.fs.File.Handle) (Error || zusb.Error)!Self 
 }
 
 fn initInterface(device_handle: *zusb.DeviceHandle) zusb.Error!void {
-    std.debug.print("Claiming interfaces\n", .{});
+    std.log.info("Claiming interfaces", .{});
     try device_handle.claimInterface(0);
     try device_handle.claimInterface(1);
 
-    std.debug.print("Setting line state\n", .{});
+    std.log.info("Setting line state", .{});
     _ = try device_handle.writeControl(0x21, 0x22, 0x03, 0, null, 0);
 
-    std.debug.print("Set line encoding\n", .{});
+    std.log.info("Set line encoding", .{});
     const encoding = [_](u8){ 0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08 };
     _ = try device_handle.writeControl(0x21, 0x20, 0, 0, &encoding, 0);
-    std.debug.print("Interface initialisation finished\n", .{});
+    std.log.info("Interface initialisation finished", .{});
 }
 
 pub fn readSerial(self: *Self, buffer: []u8) zusb.Error!usize {

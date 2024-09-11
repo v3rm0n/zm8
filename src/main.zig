@@ -20,7 +20,7 @@ pub fn main() !void {
     }
     if (args.len == 3 and std.mem.eql(u8, args[1], "--dev")) {
         preferred_device = args[2];
-        std.log.debug("Preferred device set to {s}\n", .{preferred_device.?});
+        std.log.info("Preferred device set to {s}\n", .{preferred_device.?});
     }
 
     var m8 = try M8.init(allocator, preferred_device);
@@ -32,7 +32,7 @@ pub fn main() !void {
     const serial_buffer = try allocator.alloc(u8, 1024);
     defer allocator.free(serial_buffer);
 
-    std.debug.print("Starting main loop\n", .{});
+    std.log.info("Starting main loop\n", .{});
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {
             switch (ev) {
