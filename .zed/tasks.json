@@ -25,6 +25,6 @@
   },
   {
     "label": "Zig Build",
-    "command": "zig build"
+    "command": "zig build -freference-trace=16"
   }
 ]

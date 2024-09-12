@@ -2,6 +2,7 @@ const std = @import("std");
 const zusb = @import("zusb/zusb.zig");
 const SDL = @import("sdl2");
 const RingBuffer = std.RingBuffer;
+const Transfer = zusb.Transfer;
 
 const INTERFACE = 4;
 const ENDPOINT_ISO_IN = 0x85;
@@ -10,40 +11,30 @@ const PACKET_SIZE = 180;
 const NUM_PACKETS = 2;
 
 const Audio = @This();
+const TransferList = std.ArrayList(*Transfer);
 
-allocator: std.mem.Allocator,
+allocator: *const std.mem.Allocator,
 device_handle: *zusb.DeviceHandle,
+transfers: TransferList,
 ring_buffer: *RingBuffer,
 
 pub fn init(
-    allocator: std.mem.Allocator,
-    buffer_size: usize,
+    allocator: *const std.mem.Allocator,
     device_handle: *zusb.DeviceHandle,
-) !Audio {
-    std.log.info("Initialising audio", .{});
-    var ringBuffer = try allocator.create(RingBuffer);
-    errdefer allocator.destroy(ringBuffer);
-
-    ringBuffer.* = try RingBuffer.init(allocator, buffer_size);
-    errdefer ringBuffer.deinit(allocator);
-
-    return Audio{
-        .allocator = allocator,
-        .device_handle = device_handle,
-        .ring_buffer = ringBuffer,
-    };
-}
-
-pub fn start(
-    self: *Audio,
     audio_buffer_size: u16,
     audio_device_name: ?[*:0]const u8,
-) !void {
+) !Audio {
+    std.log.info("Initialising audio", .{});
+
     std.log.info("Capturing audio with preferred device: {s}", .{audio_device_name orelse "default"});
 
     if (!SDL.wasInit(.{ .audio = true }).audio) {
+        std.log.info("Audio subsystem has not been inited, initing", .{});
         try SDL.initSubSystem(.{ .audio = true });
     }
+
+    var ring_buffer = try allocator.create(RingBuffer);
+    errdefer allocator.destroy(ring_buffer);
 
     const audio_spec = SDL.AudioSpecRequest{
         .sample_rate = 44100,
@@ -51,48 +42,58 @@ pub fn start(
         .channel_count = 2,
         .buffer_size_in_frames = audio_buffer_size,
         .callback = Audio.audioCallback,
-        .userdata = @ptrCast(self.ring_buffer),
+        .userdata = @ptrCast(ring_buffer),
     };
 
     const result = try SDL.openAudioDevice(.{ .device_name = audio_device_name, .desired_spec = audio_spec });
 
+    std.log.debug("Creating ring buffer with size {}", .{4 * result.obtained_spec.buffer_size_in_frames});
+
+    ring_buffer.* = try RingBuffer.init(allocator.*, 4 * result.obtained_spec.buffer_size_in_frames);
+    errdefer ring_buffer.deinit(allocator.*);
+
     result.device.pause(false);
-    try self.startUsbTransfer();
-}
 
-const Transfer = zusb.Transfer(RingBuffer);
+    try device_handle.claimInterface(INTERFACE);
+    try device_handle.setInterfaceAltSetting(INTERFACE, 1);
 
-fn startUsbTransfer(self: *Audio) !void {
-    std.log.info("Starting USB transfer", .{});
-    try self.device_handle.claimInterface(INTERFACE);
-    try self.device_handle.setInterfaceAltSetting(INTERFACE, 1);
+    var transferList = try TransferList.initCapacity(allocator.*, NUM_TRANSFERS);
 
-    const buffer = try self.allocator.alloc(u8, NUM_PACKETS * NUM_PACKETS);
-    _ = buffer;
-    Transfer.testFn();
-    //try transfer.submit();
-    //return transfer;
-}
-
-fn transferCallback(transfer: *Transfer) void {
-    std.log.info("Transfer callback", .{});
-    const isoPackets = transfer.transfer.iso_packet_desc();
-    while (isoPackets.next()) |pack| {
-        if (pack.isCompleted()) {
-            std.log.info("Isochronous transfer failed, status {}: {}", .{pack.status()});
-            continue;
-        }
-        transfer.user_data.writeSlice(pack.buffer);
-        transfer.submit() catch transfer.allocator.free(transfer.transfer.buffer);
+    for (0..NUM_TRANSFERS) |_| {
+        try transferList.append(try startUsbTransfer(allocator, device_handle, ring_buffer));
     }
+
+    std.log.debug("Transfers created and submitted", .{});
+
+    return Audio{ .allocator = allocator, .device_handle = device_handle, .ring_buffer = ring_buffer, .transfers = transferList };
+}
+
+fn startUsbTransfer(allocator: *const std.mem.Allocator, device_handle: *zusb.DeviceHandle, ring_buffer: *RingBuffer) !*Transfer {
+    const transfer = try Transfer.fillIsochronous(
+        allocator,
+        device_handle,
+        ENDPOINT_ISO_IN,
+        PACKET_SIZE,
+        NUM_PACKETS,
+        Audio.transferCallback,
+        ring_buffer,
+        0,
+    );
+    try transfer.submit();
+    return transfer;
+}
+
+fn transferCallback(transfer: *zusb.Transfer, packet_descriptor: *const zusb.PacketDescriptor) void {
+    std.log.info("Transfer callback", .{});
+    transfer.user_data.writeSlice(packet_descriptor.buffer(transfer)) catch |err| std.log.err("Could not write to buffer {any}", .{err});
 }
 
 fn audioCallback(user_data: ?*anyopaque, stream: [*c]u8, length: c_int) callconv(.C) void {
-    const ring_buffer: *RingBuffer = @ptrCast(@alignCast(user_data.?));
+    std.log.debug("Audio callback", .{});
+    const ring_buffer: *RingBuffer = @ptrCast(@alignCast(user_data orelse @panic("No user data provided!")));
     const ulength: usize = @intCast(length);
-    const output = stream[0..ulength];
     const read_length = ring_buffer.len();
-    ring_buffer.readFirst(output, ulength) catch |err| {
+    ring_buffer.readFirst(stream[0..ulength], @min(read_length, ulength)) catch |err| {
         std.log.err("Could not read from ring buffer: {}\n read length {}", .{ err, ulength });
     };
 
@@ -101,8 +102,11 @@ fn audioCallback(user_data: ?*anyopaque, stream: [*c]u8, length: c_int) callconv
     }
 }
 
-fn deinit(self: *Audio) zusb.Error!void {
+pub fn deinit(self: *Audio) void {
+    for (0..NUM_PACKETS) |i| {
+        self.transfers.items[i].deinit();
+    }
     self.device_handle.releaseInterface(INTERFACE) catch |err| std.log.err("Could not release interface: {}\n", .{err});
-    self.ring_buffer.deinit(self.allocator);
-    self.allocator.free(self.ring_buffer);
+    self.ring_buffer.deinit(self.allocator.*);
+    self.allocator.destroy(self.ring_buffer);
 }

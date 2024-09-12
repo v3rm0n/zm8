@@ -49,23 +49,19 @@ pub fn listDevices() !void {
 }
 
 pub fn init(allocator: std.mem.Allocator, preferred_device: ?[]u8) !Self {
-    var context = try zusb.Context.init();
-    var device_handle = if (preferred_device) |dev| try openPreferredDevice(&context, dev) else try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
-    try initInterface(&device_handle);
+    var context = try allocator.create(zusb.Context);
+    context.* = try zusb.Context.init();
 
-    const heap_context = try allocator.create(zusb.Context);
-    heap_context.* = context;
+    const device_handle = try allocator.create(zusb.DeviceHandle);
+    device_handle.* = if (preferred_device) |dev| try openPreferredDevice(context, dev) else try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
+    try initInterface(device_handle);
 
-    const heap_handle = try allocator.create(zusb.DeviceHandle);
-    heap_handle.* = device_handle;
-
-    var audio = try Audio.init(allocator, 1024, heap_handle);
-    try audio.start(1024, null);
-    return .{ .context = heap_context, .device_handle = heap_handle, .allocator = allocator, .audio = audio };
+    const audio = try Audio.init(&allocator, device_handle, 1024, null);
+    return .{ .context = context, .device_handle = device_handle, .allocator = allocator, .audio = audio };
 }
 
 fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.DeviceHandle {
-    std.log.debug("Opening with preferred device {s}\n", .{preferred_device});
+    std.log.debug("Opening with preferred device {s}", .{preferred_device});
 
     var split = std.mem.splitSequence(u8, preferred_device, ":");
     const port = try std.fmt.parseInt(u8, split.first(), 10);
@@ -92,7 +88,7 @@ fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.Dev
             }
         }
     }
-    try stdout.print("Preferred device not found, using the first available device", .{});
+    try stdout.print("Preferred device not found, using the first available device\n", .{});
     return try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
 }
 
@@ -158,6 +154,7 @@ pub fn sendKeyjazz(self: *Self, note: u8, velocity: u8) zusb.Error!void {
 }
 
 pub fn deinit(self: *Self) void {
+    self.audio.deinit();
     self.device_handle.deinit();
     self.context.deinit();
     self.allocator.destroy(self.device_handle);

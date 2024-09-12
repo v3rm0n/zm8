@@ -1,5 +1,7 @@
 const c = @import("c.zig");
 
+const Transfer = @import("transfer.zig").Transfer;
+
 const err = @import("error.zig");
 
 pub const PacketDescriptors = struct {
@@ -21,19 +23,19 @@ pub const PacketDescriptors = struct {
 };
 
 pub const PacketDescriptor = struct {
-    descriptor: c.struct_libusb_iso_packet_descriptor,
+    descriptor: *c.struct_libusb_iso_packet_descriptor,
     idx: usize,
 
-    pub fn buffer(self: *PacketDescriptor) ![]u8 {
-        const c_buffer = c.libusb_get_iso_packet_buffer_simple(&self.descriptor, @intCast(self.idx));
+    pub fn buffer(self: *const PacketDescriptor, transfer: *Transfer) []u8 {
+        const c_buffer = c.libusb_get_iso_packet_buffer_simple(transfer.transfer, @intCast(self.idx));
         return c_buffer[0..self.descriptor.actual_length];
     }
 
-    pub fn isCompleted(self: *PacketDescriptor) bool {
+    pub fn isCompleted(self: *const PacketDescriptor) bool {
         return self.descriptor.status == c.LIBUSB_TRANSFER_COMPLETED;
     }
 
-    pub fn status(self: *PacketDescriptor) err.Error {
-        return err.errorFromLibusb(self.descriptor.status);
+    pub fn status(self: *const PacketDescriptor) err.Error {
+        return err.errorFromLibusb(@intCast(self.descriptor.status));
     }
 };
