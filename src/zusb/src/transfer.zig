@@ -9,7 +9,7 @@ const RingBuffer = std.RingBuffer;
 const err = @import("error.zig");
 
 pub const Transfer = struct {
-    allocator: *const Allocator,
+    allocator: Allocator,
     transfer: *c.libusb_transfer,
     callback: *const fn (*Transfer, *const PacketDescriptor) void,
     user_data: *RingBuffer,
@@ -22,7 +22,6 @@ pub const Transfer = struct {
     }
 
     pub fn submit(self: *Transfer) err.Error!void {
-        std.log.debug("Submitting isochronous transfer", .{});
         try err.failable(c.libusb_submit_transfer(self.transfer));
     }
 
@@ -36,7 +35,7 @@ pub const Transfer = struct {
     }
 
     pub fn fillIsochronous(
-        allocator: *const Allocator,
+        allocator: Allocator,
         handle: *DeviceHandle,
         endpoint: u8,
         packet_size: u16,
@@ -45,8 +44,7 @@ pub const Transfer = struct {
         user_data: *RingBuffer,
         timeout: u64,
     ) !*Transfer {
-        std.log.debug("Creating new isochronous transfer", .{});
-        const opt_transfer: ?*c.libusb_transfer = c.libusb_alloc_transfer(0);
+        const opt_transfer: ?*c.libusb_transfer = c.libusb_alloc_transfer(num_packets);
 
         if (opt_transfer) |transfer| {
             const buf = try allocator.alloc(u8, packet_size * num_packets);
@@ -78,17 +76,16 @@ pub const Transfer = struct {
     }
 
     export fn callbackRaw(transfer: [*c]c.libusb_transfer) void {
-        std.log.debug("Running isochronous callback", .{});
         const self: *Transfer = @alignCast(@ptrCast(transfer.*.user_data.?));
         const num_iso_packets: usize = @intCast(transfer.*.num_iso_packets);
         var isoPackets = PacketDescriptors.init(transfer.*.iso_packet_desc()[0..num_iso_packets]);
         while (isoPackets.next()) |pack| {
-            if (pack.isCompleted()) {
+            if (!pack.isCompleted()) {
                 std.log.info("Isochronous transfer failed, status: {}", .{pack.status()});
                 continue;
             }
             self.callback(self, &pack);
-            self.submit() catch |e| std.log.err("Failed to resubmit isochronous transfer: {}", .{e});
         }
+        self.submit() catch |e| std.log.err("Failed to resubmit isochronous transfer: {}", .{e});
     }
 };

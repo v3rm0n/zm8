@@ -18,6 +18,7 @@ pub const Context = struct {
     }
 
     pub fn deinit(self: Context) void {
+        @import("std").log.debug("Deinit context", .{});
         _ = c.libusb_exit(self.raw);
     }
 
@@ -26,7 +27,7 @@ pub const Context = struct {
     }
 
     pub fn handleEvents(self: Context) err.Error!void {
-        try err.failable(c.libusb_handle_events(self.raw));
+        try err.failable(c.libusb_handle_events_completed(self.raw, null));
     }
 
     pub fn openDeviceWithFd(self: *Context, fd: isize) err.Error!DeviceHandle {

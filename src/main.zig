@@ -2,6 +2,7 @@ const std = @import("std");
 const GUI = @import("gui.zig");
 const M8 = @import("m8.zig");
 const SDL = @import("sdl2");
+const AudioDevice = @import("audio_device.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -13,17 +14,20 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    var preferred_device: ?[]u8 = null;
+    var preferred_usb_device: ?[]u8 = null;
     if (args.len == 2 and std.mem.eql(u8, args[1], "--list")) {
         try M8.listDevices();
         return;
     }
     if (args.len == 3 and std.mem.eql(u8, args[1], "--dev")) {
-        preferred_device = args[2];
-        std.log.info("Preferred device set to {s}", .{preferred_device.?});
+        preferred_usb_device = args[2];
+        std.log.info("Preferred device set to {s}", .{preferred_usb_device.?});
     }
 
-    var m8 = try M8.init(allocator, preferred_device);
+    var audio_device = try AudioDevice.init(allocator, 4096, null);
+    defer audio_device.deinit();
+
+    var m8 = try M8.init(allocator, audio_device, preferred_usb_device);
     defer m8.deinit();
 
     const gui = try GUI.init(false);
@@ -41,6 +45,6 @@ pub fn main() !void {
             }
         }
 
-        SDL.delay(100);
+        try m8.handleEvents();
     }
 }

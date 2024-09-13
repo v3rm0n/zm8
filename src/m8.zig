@@ -1,6 +1,7 @@
 const std = @import("std");
 const zusb = @import("zusb/zusb.zig");
-const Audio = @import("audio.zig");
+const AudioDevice = @import("audio_device.zig");
+const AudioUsb = @import("audio_usb.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -17,7 +18,7 @@ const Self = @This();
 allocator: std.mem.Allocator,
 context: *zusb.Context,
 device_handle: *zusb.DeviceHandle,
-audio: Audio,
+audio: AudioUsb,
 
 pub fn listDevices() !void {
     var context = zusb.Context.init() catch |err| {
@@ -48,16 +49,21 @@ pub fn listDevices() !void {
     }
 }
 
-pub fn init(allocator: std.mem.Allocator, preferred_device: ?[]u8) !Self {
+pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_usb_device: ?[]u8) !Self {
     var context = try allocator.create(zusb.Context);
     context.* = try zusb.Context.init();
 
     const device_handle = try allocator.create(zusb.DeviceHandle);
-    device_handle.* = if (preferred_device) |dev| try openPreferredDevice(context, dev) else try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
+    device_handle.* = if (preferred_usb_device) |dev| try openPreferredDevice(context, dev) else try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
     try initInterface(device_handle);
 
-    const audio = try Audio.init(&allocator, device_handle, 1024, null);
-    return .{ .context = context, .device_handle = device_handle, .allocator = allocator, .audio = audio };
+    const audio = try AudioUsb.init(allocator, device_handle, audio_device.ring_buffer);
+    return .{
+        .context = context,
+        .device_handle = device_handle,
+        .allocator = allocator,
+        .audio = audio,
+    };
 }
 
 fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.DeviceHandle {
@@ -154,10 +160,12 @@ pub fn sendKeyjazz(self: *Self, note: u8, velocity: u8) zusb.Error!void {
 }
 
 pub fn deinit(self: *Self) void {
+    std.log.debug("Deiniting M8", .{});
     self.audio.deinit();
     self.device_handle.deinit();
-    self.context.deinit();
+    std.log.debug("Destroy device handle", .{});
     self.allocator.destroy(self.device_handle);
+    self.context.deinit();
     self.allocator.destroy(self.context);
 }
 

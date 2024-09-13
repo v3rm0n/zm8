@@ -21,6 +21,7 @@ pub const DeviceHandle = struct {
                 _ = c.libusb_release_interface(self.raw, @as(c_int, iface));
             }
         }
+        std.log.debug("Closing device handle", .{});
         c.libusb_close(self.raw);
     }
 
