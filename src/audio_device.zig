@@ -42,11 +42,16 @@ pub fn init(
         .userdata = @ptrCast(ring_buffer),
     };
 
+    std.log.debug("Requesting audio spec {any}", .{audio_spec});
+
     const result = try SDL.openAudioDevice(.{ .device_name = audio_device_name, .desired_spec = audio_spec });
+
+    std.log.debug("Obtained audio spec {any}", .{result.obtained_spec});
 
     ring_buffer.* = try RingBuffer.init(allocator, 8 * result.obtained_spec.buffer_size_in_frames);
     errdefer ring_buffer.deinit(allocator);
 
+    std.log.debug("Unpausing audio", .{});
     result.device.pause(false);
 
     return AudioDevice{
@@ -71,7 +76,7 @@ fn audioCallback(user_data: ?*anyopaque, stream: [*c]u8, length: c_int) callconv
 }
 
 pub fn deinit(self: *AudioDevice) void {
-    std.log.debug("Deiniting audio", .{});
+    std.log.debug("Deiniting audio device", .{});
     self.audio_device.close();
     self.ring_buffer.deinit(self.allocator);
     self.allocator.destroy(self.ring_buffer);

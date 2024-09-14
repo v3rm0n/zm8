@@ -12,8 +12,6 @@ pub const DeviceHandle = struct {
     interfaces: u256,
 
     pub fn deinit(self: *DeviceHandle) void {
-        std.log.info("Deiniting device handle. Interfaces {}", .{self.interfaces});
-
         var iface: u9 = 0;
         while (iface < 256) : (iface += 1) {
             if ((self.interfaces & (@as(u256, 1) << @truncate(iface))) != 0) {
@@ -21,7 +19,6 @@ pub const DeviceHandle = struct {
                 _ = c.libusb_release_interface(self.raw, @as(c_int, iface));
             }
         }
-        std.log.debug("Closing device handle", .{});
         c.libusb_close(self.raw);
     }
 

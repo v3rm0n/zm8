@@ -1,4 +1,5 @@
 const SDL = @import("sdl2");
+const std = @import("std");
 
 const texture_width = 320;
 const texture_height = 240;
@@ -14,6 +15,7 @@ main_texture: SDL.Texture,
 full_screen: bool,
 
 pub fn init(full_screen: bool) !GUI {
+    std.log.debug("Initialising GUI", .{});
     try SDL.init(SDL.InitFlags.everything);
 
     const window = try SDL.createWindow(

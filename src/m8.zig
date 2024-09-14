@@ -50,14 +50,29 @@ pub fn listDevices() !void {
 }
 
 pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_usb_device: ?[]u8) !Self {
+    std.log.debug("Initialising M8", .{});
     var context = try allocator.create(zusb.Context);
-    context.* = try zusb.Context.init();
+    context.* = zusb.Context.init() catch |err| {
+        std.log.err("Libusb init failed {}\n", .{err});
+        return err;
+    };
+    errdefer context.deinit();
 
     const device_handle = try allocator.create(zusb.DeviceHandle);
-    device_handle.* = if (preferred_usb_device) |dev| try openPreferredDevice(context, dev) else try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
+    device_handle.* = if (preferred_usb_device) |dev|
+        try openPreferredDevice(context, dev)
+    else
+        context.openDeviceWithVidPid(M8_VID, M8_PID) catch |err| {
+            std.log.err("Can not open device {}", .{err});
+            return Error.CanNotOpenDevice;
+        } orelse return Error.CanNotOpenDevice;
+
+    errdefer device_handle.deinit();
+
     try initInterface(device_handle);
 
     const audio = try AudioUsb.init(allocator, device_handle, audio_device.ring_buffer);
+    errdefer audio.deinit();
     return .{
         .context = context,
         .device_handle = device_handle,
@@ -163,7 +178,6 @@ pub fn deinit(self: *Self) void {
     std.log.debug("Deiniting M8", .{});
     self.audio.deinit();
     self.device_handle.deinit();
-    std.log.debug("Destroy device handle", .{});
     self.allocator.destroy(self.device_handle);
     self.context.deinit();
     self.allocator.destroy(self.context);

@@ -17,9 +17,10 @@ pub const Context = struct {
         return Context{ .raw = ctx.? };
     }
 
-    pub fn deinit(self: Context) void {
+    pub fn deinit(self: *Context) void {
         @import("std").log.debug("Deinit context", .{});
         _ = c.libusb_exit(self.raw);
+        self.* = undefined;
     }
 
     pub fn devices(self: *Context) err.Error!DeviceList {

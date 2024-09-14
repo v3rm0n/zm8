@@ -63,30 +63,29 @@ fn startUsbTransfer(
 
 fn transferCallback(transfer: *zusb.Transfer, packet_descriptor: *const zusb.PacketDescriptor) void {
     const buffer = packet_descriptor.buffer(transfer);
-    transfer.user_data.writeSlice(buffer) catch |err| std.log.err("Could not write to buffer {any}", .{err});
+    transfer.user_data.writeSlice(buffer) catch return;
 }
 
-fn audioCallback(user_data: ?*anyopaque, stream: [*c]u8, length: c_int) callconv(.C) void {
-    const ring_buffer: *RingBuffer = @ptrCast(@alignCast(user_data orelse @panic("No user data provided!")));
-    const ulength: usize = @intCast(length);
-    const read_length = ring_buffer.len();
-    if (@min(read_length, ulength) > 0) {
-        std.log.debug("Reading from buffer {*} {} {}", .{ ring_buffer, read_length, ulength });
+fn hasPendingTransfers(self: *AudioUsb) bool {
+    for (0..NUM_TRANSFERS) |i| {
+        if (self.transfers.items[i].isActive()) {
+            return true;
+        }
     }
-    ring_buffer.readFirst(stream[0..ulength], @min(read_length, ulength)) catch |err| {
-        std.log.err("Could not read from ring buffer: {}\n read length {}", .{ err, ulength });
-    };
-
-    if (read_length < ulength) {
-        @memset(stream[read_length..(ulength - read_length)], 0);
-    }
+    return false;
 }
 
 pub fn deinit(self: *AudioUsb) void {
-    std.log.debug("Deiniting audio", .{});
+    std.log.debug("Deiniting USB audio", .{});
     for (0..NUM_TRANSFERS) |i| {
         self.transfers.items[i].cancel() catch |err| std.log.err("Could not cancel transfer: {}", .{err});
+    }
+    while (self.hasPendingTransfers()) {
+        self.usb_device.ctx.handleEvents() catch |err| std.log.err("Could not handle events: {}", .{err});
+    }
+    for (0..NUM_TRANSFERS) |i| {
         self.transfers.items[i].deinit();
     }
     self.usb_device.releaseInterface(INTERFACE) catch |err| std.log.err("Could not release interface: {}", .{err});
+    self.transfers.deinit();
 }

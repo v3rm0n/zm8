@@ -14,6 +14,8 @@ pub const Transfer = struct {
     callback: *const fn (*Transfer, *const PacketDescriptor) void,
     user_data: *RingBuffer,
     buf: []u8,
+    active: bool,
+    should_resubmit: bool = true,
 
     pub fn deinit(self: *const Transfer) void {
         c.libusb_free_transfer(self.transfer);
@@ -22,16 +24,25 @@ pub const Transfer = struct {
     }
 
     pub fn submit(self: *Transfer) err.Error!void {
+        if (!self.should_resubmit) {
+            return;
+        }
+        self.active = true;
         try err.failable(c.libusb_submit_transfer(self.transfer));
     }
 
     pub fn cancel(self: *Transfer) err.Error!void {
+        self.should_resubmit = false;
         try err.failable(c.libusb_cancel_transfer(self.transfer));
     }
 
     pub fn buffer(self: Transfer) []u8 {
         const length = std.math.cast(usize, self.transfer.length) orelse @panic("Buffer length too large");
         return self.transfer.buffer[0..length];
+    }
+
+    pub fn isActive(self: Transfer) bool {
+        return self.active;
     }
 
     pub fn fillIsochronous(
@@ -55,6 +66,7 @@ pub const Transfer = struct {
                 .callback = callback,
                 .user_data = user_data,
                 .buf = buf,
+                .active = true,
             };
 
             transfer.*.dev_handle = handle.raw;
@@ -77,6 +89,11 @@ pub const Transfer = struct {
 
     export fn callbackRaw(transfer: [*c]c.libusb_transfer) void {
         const self: *Transfer = @alignCast(@ptrCast(transfer.*.user_data.?));
+        self.active = false;
+        if (transfer.*.status != c.LIBUSB_TRANSFER_COMPLETED) {
+            std.log.info("Isochronous transfer failed, status: {}", .{transfer.*.status});
+            return;
+        }
         const num_iso_packets: usize = @intCast(transfer.*.num_iso_packets);
         var isoPackets = PacketDescriptors.init(transfer.*.iso_packet_desc()[0..num_iso_packets]);
         while (isoPackets.next()) |pack| {
