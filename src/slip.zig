@@ -6,7 +6,7 @@ const SLIP_SPECIAL_BYTE_ESC = 0xDB;
 const SLIP_ESCAPED_BYTE_END = 0xDC;
 const SLIP_ESCAPED_BYTE_ESC = 0xDD;
 
-const Handler = *const fn (buffer: []u8, size: u8) bool;
+const Handler = *const fn (buffer: []u8, user_data: *const anyopaque) bool;
 
 const SlipError = error{ BufferOverflow, UnknownEscapedByte, InvalidPacket };
 
@@ -14,37 +14,56 @@ const SlipState = enum { Normal, Escaped };
 
 const Slip = @This();
 
+allocator: std.mem.Allocator,
 buffer: []u8,
 size: u8 = 0,
 handler: Handler,
 state: SlipState = SlipState.Normal,
+user_data: *const anyopaque,
 
-pub fn init(buffer: []u8, comptime handler: Handler) Slip {
-    return Slip{ .buffer = buffer, .handler = handler };
+pub fn init(
+    allocator: std.mem.Allocator,
+    buffer_size: usize,
+    comptime handler: Handler,
+    user_data: *const anyopaque,
+) !Slip {
+    const buffer = try allocator.alloc(u8, buffer_size);
+    errdefer allocator.free(buffer);
+    return Slip{ .allocator = allocator, .buffer = buffer, .handler = handler, .user_data = user_data };
 }
 
-pub fn read(slip: *Slip, byte: u8) SlipError!void {
-    switch (slip.state) {
+pub fn deinit(self: *Slip) void {
+    self.allocator.free(self.buffer);
+}
+
+pub fn readAll(self: *Slip, bytes: []u8) SlipError!void {
+    for (bytes) |byte| {
+        try self.read(byte);
+    }
+}
+
+pub fn read(self: *Slip, byte: u8) SlipError!void {
+    switch (self.state) {
         SlipState.Normal => switch (byte) {
             SLIP_SPECIAL_BYTE_END => {
-                defer slip.reset();
-                if (!slip.handler(slip.buffer, slip.size)) {
+                defer self.reset();
+                if (!self.handler(self.buffer[0..self.size], self.user_data)) {
                     return SlipError.InvalidPacket;
                 }
             },
-            SLIP_SPECIAL_BYTE_ESC => slip.state = SlipState.Escaped,
-            else => try slip.byteToBuffer(byte),
+            SLIP_SPECIAL_BYTE_ESC => self.state = SlipState.Escaped,
+            else => try self.byteToBuffer(byte),
         },
         SlipState.Escaped => {
             switch (byte) {
-                SLIP_ESCAPED_BYTE_END => try slip.byteToBuffer(SLIP_SPECIAL_BYTE_END),
-                SLIP_ESCAPED_BYTE_ESC => try slip.byteToBuffer(SLIP_SPECIAL_BYTE_ESC),
+                SLIP_ESCAPED_BYTE_END => try self.byteToBuffer(SLIP_SPECIAL_BYTE_END),
+                SLIP_ESCAPED_BYTE_ESC => try self.byteToBuffer(SLIP_SPECIAL_BYTE_ESC),
                 else => {
-                    defer slip.reset();
+                    defer self.reset();
                     return SlipError.UnknownEscapedByte;
                 },
             }
-            slip.state = SlipState.Normal;
+            self.state = SlipState.Normal;
         },
     }
 }
@@ -66,15 +85,20 @@ fn byteToBuffer(slip: *Slip, byte: u8) SlipError!void {
 }
 
 var _testExpected: []const u8 = undefined;
+var _testUserData = "Test";
 
 const _TestHandler = struct {
-    fn testHandler(testBuffer: []u8, testBufferSize: u8) bool {
-        std.testing.expect(testBufferSize == _testExpected.len) catch {
-            std.debug.print("Length does not match {}!={}", .{ testBufferSize, _testExpected.len });
+    fn testHandler(testBuffer: []u8, user_data: *const anyopaque) bool {
+        std.testing.expect(@as([*]u8, @ptrCast(@constCast(user_data))) == _testUserData) catch {
+            std.debug.print("User data does not match {any}!={any}", .{ @as([*]u8, @ptrCast(@constCast(user_data))), _testUserData });
             return false;
         };
-        std.testing.expect(std.mem.eql(u8, testBuffer[0..testBufferSize], _testExpected)) catch {
-            std.debug.print("Content does not match {any}!={any}", .{ testBuffer[0..testBufferSize], _testExpected });
+        std.testing.expect(testBuffer.len == _testExpected.len) catch {
+            std.debug.print("Length does not match {}!={}", .{ testBuffer.len, _testExpected.len });
+            return false;
+        };
+        std.testing.expect(std.mem.eql(u8, testBuffer, _testExpected)) catch {
+            std.debug.print("Content does not match {any}!={any}", .{ testBuffer, _testExpected });
             return false;
         };
         return true;
@@ -86,7 +110,7 @@ fn testSlip(input: []const u8, expected: []const u8) !void {
     defer std.testing.allocator.free(buffer);
     _testExpected = expected;
 
-    var slip = Slip.init(buffer, _TestHandler.testHandler);
+    var slip = Slip.init(buffer, _TestHandler.testHandler, _testUserData);
     for (input) |elem| {
         try slip.read(elem);
     }

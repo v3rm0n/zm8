@@ -52,13 +52,14 @@ pub fn listDevices() !void {
 pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_usb_device: ?[]u8) !Self {
     std.log.debug("Initialising M8", .{});
     var context = try allocator.create(zusb.Context);
+    errdefer allocator.destroy(context);
     context.* = zusb.Context.init() catch |err| {
         std.log.err("Libusb init failed {}\n", .{err});
         return err;
     };
-    errdefer context.deinit();
 
     const device_handle = try allocator.create(zusb.DeviceHandle);
+    errdefer allocator.destroy(device_handle);
     device_handle.* = if (preferred_usb_device) |dev|
         try openPreferredDevice(context, dev)
     else
@@ -66,8 +67,6 @@ pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_u
             std.log.err("Can not open device {}", .{err});
             return Error.CanNotOpenDevice;
         } orelse return Error.CanNotOpenDevice;
-
-    errdefer device_handle.deinit();
 
     try initInterface(device_handle);
 
@@ -139,39 +138,42 @@ fn initInterface(device_handle: *zusb.DeviceHandle) zusb.Error!void {
 }
 
 pub fn readSerial(self: *Self, buffer: []u8) zusb.Error!usize {
-    return try self.device_handle.readBulk(EP_IN_ADDRESS, buffer, 100);
+    return self.device_handle.readBulk(EP_IN_ADDRESS, buffer, 10) catch |err| switch (err) {
+        zusb.Error.Timeout => return 0,
+        else => return err,
+    };
 }
 
-pub fn writeSerial(self: *Self, buffer: []u8) zusb.Error!usize {
+pub fn writeSerial(self: *Self, buffer: []const u8) zusb.Error!usize {
     return try self.device_handle.writeBulk(EP_OUT_ADDRESS, buffer, 5);
 }
 
 pub fn resetDisplay(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'R'};
-    try self.writeSerial(reset);
+    _ = try self.writeSerial(&reset);
 }
 
 pub fn enableAndResetDisplay(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'E'};
-    try self.writeSerial(reset);
+    _ = try self.writeSerial(&reset);
 }
 
 pub fn disconnect(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'D'};
-    try self.writeSerial(reset);
+    _ = try self.writeSerial(&reset);
 }
 
 pub fn sendController(self: *Self, input: u8) zusb.Error!void {
     std.log.info("Sending controller, input={}", .{input});
-    try self.writeSerial([_]u8{ 'C', input });
+    _ = try self.writeSerial(&[_]u8{ 'C', input });
 }
 
 pub fn sendKeyjazz(self: *Self, note: u8, velocity: u8) zusb.Error!void {
     std.log.info("Sending keyjazz. Note={}, velocity={}", .{ note, velocity });
-    try self.writeSerial([_]u8{ 'K', note, if (velocity > 0x7F) 0x7F else velocity });
+    _ = try self.writeSerial(&[_]u8{ 'K', note, if (velocity > 0x7F) 0x7F else velocity });
 }
 
 pub fn deinit(self: *Self) void {

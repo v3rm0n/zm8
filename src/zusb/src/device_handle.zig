@@ -38,17 +38,17 @@ pub const DeviceHandle = struct {
         self.interfaces &= ~(@as(u256, 1) << iface);
     }
 
-    pub fn device(self: DeviceHandle) Device {
+    pub fn device(self: *DeviceHandle) Device {
         return fromLibusb(Device, .{ self.ctx, c.libusb_get_device(self.raw).? });
     }
 
-    pub fn setInterfaceAltSetting(self: DeviceHandle, iface: u8, setting: u8) err.Error!void {
+    pub fn setInterfaceAltSetting(self: *DeviceHandle, iface: u8, setting: u8) err.Error!void {
         std.log.info("Setting interface {} alt setting {}", .{ iface, setting });
         try err.failable(c.libusb_set_interface_alt_setting(self.raw, @as(c_int, iface), @as(c_int, setting)));
     }
 
     pub fn writeControl(
-        self: DeviceHandle,
+        self: *DeviceHandle,
         requestType: u8,
         request: u8,
         value: u16,
@@ -67,7 +67,7 @@ pub const DeviceHandle = struct {
                 request,
                 value,
                 index,
-                @ptrFromInt(@intFromPtr(buf.?.ptr)),
+                @constCast(buf.?.ptr),
                 std.math.cast(u16, buf.?.len) orelse return error.Overflow,
                 std.math.cast(c_uint, timeout_ms) orelse return error.Overflow,
             )
@@ -91,7 +91,7 @@ pub const DeviceHandle = struct {
     }
 
     pub fn readBulk(
-        self: DeviceHandle,
+        self: *DeviceHandle,
         endpoint: u8,
         buf: []u8,
         timeout_ms: u64,
@@ -100,7 +100,7 @@ pub const DeviceHandle = struct {
             return error.InvalidParam;
         }
 
-        var transferred: c_int = undefined;
+        var transferred: c_int = 0;
 
         const ret = c.libusb_bulk_transfer(
             self.raw,
@@ -119,7 +119,7 @@ pub const DeviceHandle = struct {
     }
 
     pub fn writeBulk(
-        self: DeviceHandle,
+        self: *DeviceHandle,
         endpoint: u8,
         buf: []const u8,
         timeout_ms: u64,
@@ -128,12 +128,12 @@ pub const DeviceHandle = struct {
             return error.InvalidParam;
         }
 
-        var transferred: c_int = undefined;
+        var transferred: c_int = 0;
 
         const ret = c.libusb_bulk_transfer(
             self.raw,
             endpoint,
-            @ptrFromInt(@intFromPtr(buf.ptr)),
+            @constCast(buf.ptr),
             std.math.cast(c_int, buf.len) orelse return error.Overflow,
             &transferred,
             std.math.cast(c_uint, timeout_ms) orelse return error.Overflow,

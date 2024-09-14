@@ -91,7 +91,6 @@ pub const Transfer = struct {
         const self: *Transfer = @alignCast(@ptrCast(transfer.*.user_data.?));
         self.active = false;
         if (transfer.*.status != c.LIBUSB_TRANSFER_COMPLETED) {
-            std.log.info("Isochronous transfer failed, status: {}", .{transfer.*.status});
             return;
         }
         const num_iso_packets: usize = @intCast(transfer.*.num_iso_packets);
