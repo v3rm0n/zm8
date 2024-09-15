@@ -16,7 +16,7 @@ const Slip = @This();
 
 allocator: std.mem.Allocator,
 buffer: []u8,
-size: u8 = 0,
+size: usize = 0,
 handler: Handler,
 state: SlipState = SlipState.Normal,
 user_data: *const anyopaque,

@@ -5,38 +5,189 @@ const CommandError = error{OutOfRange};
 const Command = @This();
 
 pub const CommandTag = enum(u8) {
-    Rectangle = 0xFE,
-    Character = 0xFD,
-    Oscilloscope = 0xFC,
-    Joypad = 0xFB,
-    System = 0xFF,
+    rectangle = 0xFE,
+    character = 0xFD,
+    oscilloscope = 0xFC,
+    joypad = 0xFB,
+    system = 0xFF,
 };
 
 const CommandLimits = struct { min: usize, max: usize };
 
 fn getCommandLimits(cmd: CommandTag) CommandLimits {
     return switch (cmd) {
-        .Rectangle => .{ .min = 5, .max = 12 },
-        .Character => .{ .min = 12, .max = 12 },
-        .Oscilloscope => .{ .min = 1 + 3, .max = 1 + 3 + 480 },
-        .Joypad => .{ .min = 3, .max = 3 },
-        .System => .{ .min = 6, .max = 6 },
+        .rectangle => .{ .min = 5, .max = 12 },
+        .character => .{ .min = 12, .max = 12 },
+        .oscilloscope => .{ .min = 1 + 3, .max = 1 + 3 + 480 },
+        .joypad => .{ .min = 3, .max = 3 },
+        .system => .{ .min = 6, .max = 6 },
     };
 }
 
-tag: CommandTag,
-data: []u8,
+pub const Color = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
+pub const Position = struct {
+    x: u16,
+    y: u16,
+};
+
+pub const Size = struct {
+    width: u16,
+    height: u16,
+};
+
+pub const Version = struct {
+    major: u8,
+    minor: u8,
+    patch: u8,
+};
+
+pub const CommandData = union(CommandTag) {
+    rectangle: struct {
+        position: Position,
+        size: Size,
+        color: Color,
+    },
+    character: struct {
+        character: u16,
+        position: Position,
+        foreground: Color,
+        background: Color,
+    },
+    oscilloscope: struct {
+        color: Color,
+        waveform: []u8,
+    },
+    joypad: struct {},
+    system: struct {
+        hardware: HardwareType,
+        version: Version,
+    },
+};
+
+pub const HardwareType = enum(u8) {
+    Headless,
+    BetaM8,
+    ProductionM8,
+    ProductionM8Model2,
+};
+
+data: CommandData,
 
 fn init(tag: CommandTag, data: []u8) !Command {
     const limits = getCommandLimits(tag);
     if (data.len < limits.min or data.len > limits.max) {
         return error.OutOfRange;
     }
-    return .{ .tag = tag, .data = data[1..] };
+    return switch (tag) {
+        .rectangle => .{
+            .data = .{
+                .rectangle = .{
+                    .position = .{
+                        .x = decodeU16(data, 1),
+                        .y = decodeU16(data, 3),
+                    },
+                    .size = rectangleSize(data),
+                    .color = rectangleColor(data),
+                },
+            },
+        },
+        .character => .{
+            .data = .{
+                .character = .{
+                    .character = decodeU16(data, 1),
+                    .position = .{
+                        .x = decodeU16(data, 2),
+                        .y = decodeU16(data, 4),
+                    },
+                    .foreground = .{
+                        .r = data[6],
+                        .g = data[7],
+                        .b = data[8],
+                    },
+                    .background = .{
+                        .r = data[9],
+                        .g = data[10],
+                        .b = data[11],
+                    },
+                },
+            },
+        },
+        .oscilloscope => .{
+            .data = .{
+                .oscilloscope = .{
+                    .color = .{
+                        .r = data[1],
+                        .g = data[2],
+                        .b = data[3],
+                    },
+                    .waveform = data[4..],
+                },
+            },
+        },
+        .joypad => .{
+            .data = .{
+                .joypad = .{},
+            },
+        },
+        .system => .{
+            .data = .{
+                .system = .{
+                    .hardware = @enumFromInt(data[1]),
+                    .version = .{
+                        .minor = data[2],
+                        .major = data[3],
+                        .patch = data[4],
+                    },
+                },
+            },
+        },
+    };
+}
+
+fn rectangleSize(data: []u8) Size {
+    return switch (data.len) {
+        5, 8 => .{
+            .width = 1,
+            .height = 1,
+        },
+        else => .{
+            .width = decodeU16(data, 5),
+            .height = decodeU16(data, 7),
+        },
+    };
+}
+
+fn rectangleColor(data: []u8) Color {
+    return switch (data.len) {
+        5, 9 => .{
+            .r = 0,
+            .g = 0,
+            .b = 0,
+        },
+        8 => .{
+            .r = data[5],
+            .g = data[6],
+            .b = data[7],
+        },
+        else => .{
+            .r = data[9],
+            .g = data[10],
+            .b = data[11],
+        },
+    };
 }
 
 pub fn parseCommand(buffer: []u8) !Command {
     const commandTag: CommandTag = @enumFromInt(buffer[0]);
     std.log.debug("Command tag {}", .{commandTag});
     return Command.init(commandTag, buffer);
+}
+
+fn decodeU16(data: []u8, start: usize) u16 {
+    return @as(u16, data[start]) | (@as(u16, data[start + 1]) << 8);
 }

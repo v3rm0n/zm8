@@ -31,7 +31,7 @@ pub fn main() !void {
 }
 
 fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
-    const gui = try GUI.init(false);
+    var gui = try GUI.init(false);
     defer gui.deinit();
 
     var audio_device = try AudioDevice.init(allocator, 4096, null);
@@ -61,6 +61,7 @@ fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
         const read_length = try m8.readSerial(serial_buffer);
         try slip.readAll(serial_buffer[0..read_length]);
         try m8.handleEvents();
+        try gui.render();
     }
 }
 

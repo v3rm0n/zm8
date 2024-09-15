@@ -1,7 +1,10 @@
 const SDL = @import("sdl2");
 const std = @import("std");
 const Command = @import("command.zig");
-const CommandTag = @import("command.zig").CommandTag;
+const HardwareType = @import("command.zig").HardwareType;
+const Position = @import("command.zig").Position;
+const Color = @import("command.zig").Color;
+const Size = @import("command.zig").Size;
 
 const stdout = std.io.getStdOut().writer();
 
@@ -9,13 +12,6 @@ const texture_width = 320;
 const texture_height = 240;
 
 const M8Model = enum { V1, V2 };
-
-const M8HardwareType = enum(u8) {
-    Headless,
-    BetaM8,
-    ProductionM8,
-    ProductionM8Model2,
-};
 
 var dirty: bool = true;
 var background_color: SDL.Color = SDL.Color.black;
@@ -60,53 +56,103 @@ pub fn toggleFullScreen(gui: *GUI) void {
 }
 
 pub fn handleCommand(gui: *GUI, command: Command) !void {
-    _ = gui;
     std.log.debug("Handling command {}", .{command});
-    switch (command.tag) {
-        CommandTag.System => {
-            const hardware_type: M8HardwareType = @enumFromInt(command.data[1]);
+    switch (command.data) {
+        .system => |cmd| {
             try stdout.print("** Hardware info ** Device type: {}, Firmware ver {}.{}.{}\n", .{
-                hardware_type,
-                command.data[2],
-                command.data[3],
-                command.data[4],
+                cmd.hardware,
+                cmd.version.major,
+                cmd.version.minor,
+                cmd.version.patch,
             });
-            if (hardware_type == M8HardwareType.ProductionM8Model2) {
-                m8_model = M8Model.V2;
+            if (cmd.hardware == HardwareType.ProductionM8Model2) {
+                setModel(M8Model.V2);
             } else {
-                m8_model = M8Model.V1;
+                setModel(M8Model.V1);
             }
         },
-        CommandTag.Rectangle => {
+        .rectangle => |cmd| {
             std.log.debug("Rectangle command", .{});
-            drawRectangle();
+            try gui.drawRectangle(cmd.position, cmd.size, cmd.color);
         },
-        CommandTag.Character => {
+        .character => |cmd| {
             std.log.debug("Character command", .{});
-            drawCharacter();
+            try gui.drawCharacter(cmd.character, cmd.position, cmd.foreground, cmd.background);
         },
-        CommandTag.Joypad => {
+        .joypad => {
             std.log.debug("Joypad command", .{});
         },
-        CommandTag.Oscilloscope => {
+        .oscilloscope => |cmd| {
             std.log.debug("Oscilloscope command", .{});
+            try gui.drawOscilloscope(cmd.waveform, cmd.color);
         },
     }
 }
 
-pub fn drawCharacter() void {}
+fn setModel(model: M8Model) void {
+    m8_model = model;
+}
 
-pub fn drawRectangle() void {}
+fn drawCharacter(
+    gui: *GUI,
+    character: u16,
+    position: Position,
+    foreground: Color,
+    background: Color,
+) !void {
+    _ = gui;
+    _ = character;
+    _ = position;
+    _ = foreground;
+    _ = background;
+}
 
-pub fn render(gui: *GUI) void {
-    if (gui.dirty) {
-        gui.dirty = 0;
-        gui.renderer.setTarget(null);
-        gui.renderer.setColorRGBA(gui.background_color);
-        gui.renderer.clear();
-        gui.renderer.copy(gui.main_texture, null, null);
+fn drawRectangle(
+    gui: *GUI,
+    position: Position,
+    size: Size,
+    color: Color,
+) !void {
+    const rectangle = SDL.Rectangle{
+        .x = position.x,
+        .y = position.y,
+        .width = size.width,
+        .height = size.height,
+    };
+
+    if (position.x == 0 and position.y == 0 and size.width == texture_width and size.height == texture_height) {
+        background_color = SDL.Color{
+            .r = color.r,
+            .g = color.g,
+            .b = color.b,
+            .a = 0xFF,
+        };
+    }
+
+    try gui.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
+    try gui.renderer.fillRect(rectangle);
+    dirty = true;
+}
+
+fn drawOscilloscope(
+    gui: *GUI,
+    waveform: []u8,
+    color: Color,
+) !void {
+    _ = gui;
+    _ = waveform;
+    _ = color;
+}
+
+pub fn render(gui: *GUI) !void {
+    if (dirty) {
+        dirty = false;
+        try gui.renderer.setTarget(null);
+        try gui.renderer.setColor(background_color);
+        try gui.renderer.clear();
+        try gui.renderer.copy(gui.main_texture, null, null);
         gui.renderer.present();
-        gui.renderer.setTarget(gui.main_texture);
+        try gui.renderer.setTarget(gui.main_texture);
     }
 }
 
