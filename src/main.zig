@@ -31,7 +31,7 @@ pub fn main() !void {
 }
 
 fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
-    var gui = try GUI.init(false);
+    var gui = try GUI.init(allocator, false);
     defer gui.deinit();
 
     var audio_device = try AudioDevice.init(allocator, 4096, null);
@@ -66,7 +66,6 @@ fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
 }
 
 fn slipHandler(buffer: []u8, user_data: *const anyopaque) bool {
-    std.log.debug("Slip packet {any}", .{buffer});
     const gui: *GUI = @ptrCast(@constCast(@alignCast(user_data)));
     const command = Command.parseCommand(buffer) catch |err| {
         std.log.err("Failed to parse command: {}", .{err});

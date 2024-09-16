@@ -5,13 +5,13 @@ const HardwareType = @import("command.zig").HardwareType;
 const Position = @import("command.zig").Position;
 const Color = @import("command.zig").Color;
 const Size = @import("command.zig").Size;
+const M8Model = @import("command.zig").M8Model;
+const Font = @import("font.zig");
 
 const stdout = std.io.getStdOut().writer();
 
 const texture_width = 320;
 const texture_height = 240;
-
-const M8Model = enum { V1, V2 };
 
 var dirty: bool = true;
 var background_color: SDL.Color = SDL.Color.black;
@@ -19,12 +19,14 @@ var m8_model: M8Model = M8Model.V1;
 
 const GUI = @This();
 
+allocator: std.mem.Allocator,
 window: SDL.Window,
 renderer: SDL.Renderer,
 main_texture: SDL.Texture,
 full_screen: bool,
+font: Font,
 
-pub fn init(full_screen: bool) !GUI {
+pub fn init(allocator: std.mem.Allocator, full_screen: bool) !GUI {
     std.log.debug("Initialising GUI", .{});
     try SDL.init(SDL.InitFlags.everything);
 
@@ -46,7 +48,16 @@ pub fn init(full_screen: bool) !GUI {
     try renderer.setColor(background_color);
     try renderer.clear();
 
-    return GUI{ .window = window, .renderer = renderer, .main_texture = main_texture, .full_screen = full_screen };
+    dirty = true;
+
+    return GUI{
+        .allocator = allocator,
+        .window = window,
+        .renderer = renderer,
+        .main_texture = main_texture,
+        .full_screen = full_screen,
+        .font = try Font.init(renderer, m8_model),
+    };
 }
 
 pub fn toggleFullScreen(gui: *GUI) void {
@@ -56,7 +67,6 @@ pub fn toggleFullScreen(gui: *GUI) void {
 }
 
 pub fn handleCommand(gui: *GUI, command: Command) !void {
-    std.log.debug("Handling command {}", .{command});
     switch (command.data) {
         .system => |cmd| {
             try stdout.print("** Hardware info ** Device type: {}, Firmware ver {}.{}.{}\n", .{
@@ -72,18 +82,15 @@ pub fn handleCommand(gui: *GUI, command: Command) !void {
             }
         },
         .rectangle => |cmd| {
-            std.log.debug("Rectangle command", .{});
             try gui.drawRectangle(cmd.position, cmd.size, cmd.color);
         },
         .character => |cmd| {
-            std.log.debug("Character command", .{});
             try gui.drawCharacter(cmd.character, cmd.position, cmd.foreground, cmd.background);
         },
         .joypad => {
             std.log.debug("Joypad command", .{});
         },
         .oscilloscope => |cmd| {
-            std.log.debug("Oscilloscope command", .{});
             try gui.drawOscilloscope(cmd.waveform, cmd.color);
         },
     }
@@ -94,17 +101,14 @@ fn setModel(model: M8Model) void {
 }
 
 fn drawCharacter(
-    gui: *GUI,
-    character: u16,
+    self: *GUI,
+    character: u8,
     position: Position,
     foreground: Color,
     background: Color,
 ) !void {
-    _ = gui;
-    _ = character;
-    _ = position;
-    _ = foreground;
-    _ = background;
+    try self.font.draw(self.renderer, character, position, foreground, background);
+    dirty = true;
 }
 
 fn drawRectangle(
@@ -121,6 +125,7 @@ fn drawRectangle(
     };
 
     if (position.x == 0 and position.y == 0 and size.width == texture_width and size.height == texture_height) {
+        std.log.debug("Setting background color", .{});
         background_color = SDL.Color{
             .r = color.r,
             .g = color.g,
@@ -134,14 +139,52 @@ fn drawRectangle(
     dirty = true;
 }
 
+var waveform_clear = false;
+var previous_waveform_len: usize = 0;
+
 fn drawOscilloscope(
     gui: *GUI,
     waveform: []u8,
     color: Color,
 ) !void {
-    _ = gui;
-    _ = waveform;
-    _ = color;
+    if (!(waveform_clear and waveform.len == 0)) {
+        const waveform_rectangle = if (waveform.len > 0)
+            SDL.Rectangle{
+                .x = texture_width - @as(i32, @intCast(waveform.len)),
+                .y = 0,
+                .width = @intCast(waveform.len),
+                .height = gui.font.inline_font.waveform_max_height,
+            }
+        else
+            SDL.Rectangle{
+                .x = texture_width - @as(i32, @intCast(previous_waveform_len)),
+                .y = 0,
+                .width = @intCast(previous_waveform_len),
+                .height = gui.font.inline_font.waveform_max_height + 1,
+            };
+        try gui.renderer.setColorRGBA(background_color.r, background_color.g, background_color.b, background_color.a);
+        try gui.renderer.fillRect(waveform_rectangle);
+        try gui.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
+
+        var waveform_points = try gui.allocator.alloc(SDL.Point, waveform.len);
+        defer gui.allocator.free(waveform_points);
+
+        for (0..waveform.len) |i| {
+            waveform_points[i] = SDL.Point{
+                .x = @as(i32, @intCast(i)) + waveform_rectangle.x,
+                .y = @min(
+                    gui.font.inline_font.waveform_max_height,
+                    waveform[i],
+                ),
+            };
+        }
+
+        try gui.renderer.drawPoints(waveform_points);
+
+        waveform_clear = waveform.len == 0;
+
+        dirty = true;
+    }
 }
 
 pub fn render(gui: *GUI) !void {
@@ -161,5 +204,6 @@ pub fn deinit(gui: GUI) void {
     gui.window.destroy();
     gui.renderer.destroy();
     gui.main_texture.destroy();
+    gui.font.deinit();
     SDL.quit();
 }

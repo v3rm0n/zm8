@@ -4,6 +4,8 @@ const CommandError = error{OutOfRange};
 
 const Command = @This();
 
+pub const M8Model = enum { V1, V2 };
+
 pub const CommandTag = enum(u8) {
     rectangle = 0xFE,
     character = 0xFD,
@@ -53,7 +55,7 @@ pub const CommandData = union(CommandTag) {
         color: Color,
     },
     character: struct {
-        character: u16,
+        character: u8,
         position: Position,
         foreground: Color,
         background: Color,
@@ -99,7 +101,7 @@ fn init(tag: CommandTag, data: []u8) !Command {
         .character => .{
             .data = .{
                 .character = .{
-                    .character = decodeU16(data, 1),
+                    .character = data[1],
                     .position = .{
                         .x = decodeU16(data, 2),
                         .y = decodeU16(data, 4),
@@ -184,7 +186,6 @@ fn rectangleColor(data: []u8) Color {
 
 pub fn parseCommand(buffer: []u8) !Command {
     const commandTag: CommandTag = @enumFromInt(buffer[0]);
-    std.log.debug("Command tag {}", .{commandTag});
     return Command.init(commandTag, buffer);
 }
 
