@@ -30,6 +30,13 @@ pub const Color = struct {
     r: u8,
     g: u8,
     b: u8,
+
+    pub fn eql(self: Color, other: ?Color) bool {
+        if (other) |value| {
+            return self.r == value.r and self.g == value.g and self.b == value.b;
+        }
+        return false;
+    }
 };
 
 pub const Position = struct {

@@ -54,6 +54,11 @@ fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
         while (SDL.pollEvent()) |ev| {
             switch (ev) {
                 .quit => break :mainLoop,
+                .key_down => |key_ev| {
+                    if (key_ev.keycode == SDL.Keycode.escape) {
+                        try m8.resetDisplay();
+                    }
+                },
                 else => {},
             }
         }

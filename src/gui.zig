@@ -14,7 +14,7 @@ const texture_width = 320;
 const texture_height = 240;
 
 var dirty: bool = true;
-var background_color: SDL.Color = SDL.Color.black;
+var background_color: SDL.Color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
 var m8_model: M8Model = M8Model.V1;
 
 const GUI = @This();
@@ -32,17 +32,29 @@ pub fn init(allocator: std.mem.Allocator, full_screen: bool) !GUI {
 
     const window = try SDL.createWindow(
         "zm8",
-        .{ .centered = {} },
-        .{ .centered = {} },
+        SDL.WindowPosition.centered,
+        SDL.WindowPosition.centered,
         texture_width * 2,
         texture_height * 2,
-        .{ .vis = .shown, .context = .opengl, .resizable = true, .dim = if (full_screen) .fullscreen else .default },
+        .{
+            .vis = .shown,
+            .context = .opengl,
+            .resizable = true,
+            .dim = if (full_screen) .fullscreen else .default,
+        },
     );
 
     const renderer = try SDL.createRenderer(window, null, .{ .accelerated = true });
     try renderer.setLogicalSize(texture_width, texture_height);
 
-    const main_texture = try SDL.createTexture(renderer, SDL.PixelFormatEnum.argb8888, SDL.Texture.Access.target, texture_width, texture_height);
+    const main_texture = try SDL.createTexture(
+        renderer,
+        SDL.PixelFormatEnum.argb8888,
+        SDL.Texture.Access.target,
+        texture_width,
+        texture_height,
+    );
+
     try renderer.setTarget(main_texture);
 
     try renderer.setColor(background_color);
@@ -112,19 +124,20 @@ fn drawCharacter(
 }
 
 fn drawRectangle(
-    gui: *GUI,
+    self: *GUI,
     position: Position,
     size: Size,
     color: Color,
 ) !void {
+    const y = @as(i16, @intCast(position.y)) + self.font.inline_font.screen_offset_y;
     const rectangle = SDL.Rectangle{
         .x = position.x,
-        .y = position.y,
+        .y = y,
         .width = size.width,
         .height = size.height,
     };
 
-    if (position.x == 0 and position.y == 0 and size.width == texture_width and size.height == texture_height) {
+    if (rectangle.x == 0 and rectangle.y <= 0 and rectangle.width == texture_width and rectangle.height >= texture_height) {
         std.log.debug("Setting background color", .{});
         background_color = SDL.Color{
             .r = color.r,
@@ -134,8 +147,8 @@ fn drawRectangle(
         };
     }
 
-    try gui.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
-    try gui.renderer.fillRect(rectangle);
+    try self.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
+    try self.renderer.fillRect(rectangle);
     dirty = true;
 }
 
@@ -143,7 +156,7 @@ var waveform_clear = false;
 var previous_waveform_len: usize = 0;
 
 fn drawOscilloscope(
-    gui: *GUI,
+    self: *GUI,
     waveform: []u8,
     color: Color,
 ) !void {
@@ -153,33 +166,33 @@ fn drawOscilloscope(
                 .x = texture_width - @as(i32, @intCast(waveform.len)),
                 .y = 0,
                 .width = @intCast(waveform.len),
-                .height = gui.font.inline_font.waveform_max_height,
+                .height = self.font.inline_font.waveform_max_height,
             }
         else
             SDL.Rectangle{
                 .x = texture_width - @as(i32, @intCast(previous_waveform_len)),
                 .y = 0,
                 .width = @intCast(previous_waveform_len),
-                .height = gui.font.inline_font.waveform_max_height + 1,
+                .height = self.font.inline_font.waveform_max_height + 1,
             };
-        try gui.renderer.setColorRGBA(background_color.r, background_color.g, background_color.b, background_color.a);
-        try gui.renderer.fillRect(waveform_rectangle);
-        try gui.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
+        try self.renderer.setColorRGBA(background_color.r, background_color.g, background_color.b, background_color.a);
+        try self.renderer.fillRect(waveform_rectangle);
+        try self.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
 
-        var waveform_points = try gui.allocator.alloc(SDL.Point, waveform.len);
-        defer gui.allocator.free(waveform_points);
+        var waveform_points = try self.allocator.alloc(SDL.Point, waveform.len);
+        defer self.allocator.free(waveform_points);
 
         for (0..waveform.len) |i| {
             waveform_points[i] = SDL.Point{
                 .x = @as(i32, @intCast(i)) + waveform_rectangle.x,
                 .y = @min(
-                    gui.font.inline_font.waveform_max_height,
+                    self.font.inline_font.waveform_max_height,
                     waveform[i],
                 ),
             };
         }
 
-        try gui.renderer.drawPoints(waveform_points);
+        try self.renderer.drawPoints(waveform_points);
 
         waveform_clear = waveform.len == 0;
 
@@ -187,23 +200,23 @@ fn drawOscilloscope(
     }
 }
 
-pub fn render(gui: *GUI) !void {
+pub fn render(self: *GUI) !void {
     if (dirty) {
         dirty = false;
-        try gui.renderer.setTarget(null);
-        try gui.renderer.setColor(background_color);
-        try gui.renderer.clear();
-        try gui.renderer.copy(gui.main_texture, null, null);
-        gui.renderer.present();
-        try gui.renderer.setTarget(gui.main_texture);
+        try self.renderer.setTarget(null);
+        try self.renderer.setColor(background_color);
+        try self.renderer.clear();
+        try self.renderer.copy(self.main_texture, null, null);
+        self.renderer.present();
+        try self.renderer.setTarget(self.main_texture);
     }
 }
 
-pub fn deinit(gui: GUI) void {
+pub fn deinit(self: GUI) void {
     std.log.debug("Deinit GUI", .{});
-    gui.window.destroy();
-    gui.renderer.destroy();
-    gui.main_texture.destroy();
-    gui.font.deinit();
+    self.window.destroy();
+    self.renderer.destroy();
+    self.main_texture.destroy();
+    self.font.deinit();
     SDL.quit();
 }
