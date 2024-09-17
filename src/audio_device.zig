@@ -1,5 +1,5 @@
 const std = @import("std");
-const zusb = @import("zusb/zusb.zig");
+const zusb = @import("zusb");
 const SDL = @import("sdl2");
 const RingBuffer = std.RingBuffer;
 const Transfer = zusb.Transfer;
