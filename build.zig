@@ -7,6 +7,8 @@ pub fn build(b: *std.Build) void {
 
     const sdk = sdl.init(b, .{});
 
+    const zusb = b.dependency("zusb", .{});
+
     const exe = b.addExecutable(.{
         .name = "zm8",
         .root_source_file = b.path("src/main.zig"),
@@ -14,10 +16,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const zusb_module = zusb.module("zusb");
+
+    zusb_module.addSystemIncludePath(.{.cwd_relative="/opt/homebrew/include"});
+
     exe.linkSystemLibrary("usb-1.0");
 
     sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
     exe.root_module.addImport("sdl2", sdk.getWrapperModule());
+
+    exe.root_module.addImport("zusb", zusb.module("zusb"));
+
 
     b.installArtifact(exe);
 

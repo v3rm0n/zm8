@@ -4,12 +4,16 @@
     .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .sdl = .{
-            .url = "https://github.com/ikskuh/SDL.zig/archive/38ca4efa99d05431902021df0997f804a6c6d4f3.zip",
+            .url = "git+https://github.com/ikskuh/SDL.zig#38ca4efa99d05431902021df0997f804a6c6d4f3",
             .hash = "1220dc7b8b63eab7a4184fde897e51f8f1301d8615a0bbb0c9f8f0b693fa38055c4e",
         },
         .libusb = .{
             .url = "git+https://github.com/ZigEmbeddedGroup/libusb#e4c0bd2d1cb11e1f3bda1f52bb9c699e16d87576",
             .hash = "1220c50cbc5bbd2758216cd7840712fa2b76a446c801345780cd30454e6d55670b7e",
+        },
+        .zusb = .{
+            .url = "git+https://github.com/v3rm0n/zusb#46698f2afb2079f63627d84ab80e97e3953d1824",
+            .hash = "1220663f5802aa5c1e63ed4331262c0d73df65ab07b05f60bc5ef72e23b591a74b6b",
         },
     },
     .paths = .{

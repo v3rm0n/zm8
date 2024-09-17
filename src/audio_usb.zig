@@ -1,7 +1,6 @@
 const std = @import("std");
-const zusb = @import("zusb/zusb.zig");
+const zusb = @import("zusb");
 const RingBuffer = std.RingBuffer;
-const Transfer = zusb.Transfer;
 
 const INTERFACE = 4;
 const ENDPOINT_ISO_IN = 0x85;
@@ -10,6 +9,7 @@ const PACKET_SIZE = 180;
 const NUM_PACKETS = 2;
 
 const AudioUsb = @This();
+const Transfer = zusb.Transfer(RingBuffer);
 const TransferList = std.ArrayList(*Transfer);
 
 allocator: std.mem.Allocator,
@@ -60,9 +60,8 @@ fn startUsbTransfer(
     return transfer;
 }
 
-fn transferCallback(transfer: *zusb.Transfer, packet_descriptor: *const zusb.PacketDescriptor) void {
-    const buffer = packet_descriptor.buffer(transfer);
-    transfer.user_data.writeSlice(buffer) catch return;
+fn transferCallback(ring_buffer: *RingBuffer, buffer: []const u8) void {
+    ring_buffer.writeSlice(buffer) catch return;
 }
 
 fn hasPendingTransfers(self: *AudioUsb) bool {

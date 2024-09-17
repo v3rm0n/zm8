@@ -1,5 +1,5 @@
 const std = @import("std");
-const zusb = @import("zusb/zusb.zig");
+const zusb = @import("zusb");
 const AudioDevice = @import("audio_device.zig");
 const AudioUsb = @import("audio_usb.zig");
 
