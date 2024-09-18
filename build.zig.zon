@@ -15,6 +15,10 @@
             .url = "git+https://github.com/v3rm0n/zusb#46698f2afb2079f63627d84ab80e97e3953d1824",
             .hash = "1220663f5802aa5c1e63ed4331262c0d73df65ab07b05f60bc5ef72e23b591a74b6b",
         },
+        .ini = .{
+            .url = "git+https://github.com/ziglibs/ini#e18d36665905c1e7ba0c1ce3e8780076b33e3002",
+            .hash = "1220b0979ea9891fa4aeb85748fc42bc4b24039d9c99a4d65d893fb1c83e921efad8",
+        },
     },
     .paths = .{
         "build.zig",

@@ -21,7 +21,7 @@
   },
   {
     "label": "Zig Test",
-    "command": "zig build test"
+    "command": "zig build test --summary all"
   },
   {
     "label": "Zig Build",

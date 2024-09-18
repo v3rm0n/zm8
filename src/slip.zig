@@ -106,11 +106,10 @@ const _TestHandler = struct {
 };
 
 fn testSlip(input: []const u8, expected: []const u8) !void {
-    const buffer = try std.testing.allocator.alloc(u8, 1024);
-    defer std.testing.allocator.free(buffer);
     _testExpected = expected;
 
-    var slip = Slip.init(buffer, _TestHandler.testHandler, _testUserData);
+    var slip = try Slip.init(std.testing.allocator, 1024, _TestHandler.testHandler, _testUserData);
+    defer slip.deinit();
     for (input) |elem| {
         try slip.read(elem);
     }

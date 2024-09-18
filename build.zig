@@ -9,6 +9,8 @@ pub fn build(b: *std.Build) void {
 
     const zusb = b.dependency("zusb", .{});
 
+    const ini = b.dependency("ini", .{});
+
     const exe = b.addExecutable(.{
         .name = "zm8",
         .root_source_file = b.path("src/main.zig"),
@@ -18,15 +20,14 @@ pub fn build(b: *std.Build) void {
 
     const zusb_module = zusb.module("zusb");
 
-    zusb_module.addSystemIncludePath(.{.cwd_relative="/opt/homebrew/include"});
+    zusb_module.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
 
     exe.linkSystemLibrary("usb-1.0");
 
     sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
     exe.root_module.addImport("sdl2", sdk.getWrapperModule());
-
-    exe.root_module.addImport("zusb", zusb.module("zusb"));
-
+    exe.root_module.addImport("zusb", zusb_module);
+    exe.root_module.addImport("ini", ini.module("ini"));
 
     b.installArtifact(exe);
 
@@ -51,6 +52,7 @@ pub fn build(b: *std.Build) void {
 
     sdk.link(exe_unit_tests, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
     exe_unit_tests.root_module.addImport("sdl2", sdk.getWrapperModule());
+    exe_unit_tests.root_module.addImport("ini", ini.module("ini"));
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
