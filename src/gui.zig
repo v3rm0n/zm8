@@ -26,7 +26,7 @@ main_texture: SDL.Texture,
 full_screen: bool,
 font: Font,
 
-pub fn init(allocator: std.mem.Allocator, full_screen: bool) !GUI {
+pub fn init(allocator: std.mem.Allocator, full_screen: bool, use_gpu: bool) !GUI {
     std.log.debug("Initialising GUI", .{});
     try SDL.init(SDL.InitFlags.everything);
 
@@ -44,7 +44,9 @@ pub fn init(allocator: std.mem.Allocator, full_screen: bool) !GUI {
         },
     );
 
-    const renderer = try SDL.createRenderer(window, null, .{ .accelerated = true });
+    const renderer_flags: SDL.RendererFlags = if (use_gpu) .{ .accelerated = true } else .{ .software = true };
+
+    const renderer = try SDL.createRenderer(window, null, renderer_flags);
     try renderer.setLogicalSize(texture_width, texture_height);
 
     const main_texture = try SDL.createTexture(
@@ -72,10 +74,10 @@ pub fn init(allocator: std.mem.Allocator, full_screen: bool) !GUI {
     };
 }
 
-pub fn toggleFullScreen(gui: *GUI) void {
+pub fn toggleFullScreen(gui: *GUI) !void {
     gui.full_screen = !gui.full_screen;
-    gui.window.setFullscreen(.{ .fullscreen = gui.full_screen });
-    SDL.showCursor(true);
+    try gui.window.setFullscreen(if (gui.full_screen) .fullscreen else .default);
+    _ = try SDL.showCursor(true);
 }
 
 pub fn handleCommand(gui: *GUI, command: Command) !void {

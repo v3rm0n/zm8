@@ -5,6 +5,7 @@ const SDL = @import("sdl2");
 const AudioDevice = @import("audio_device.zig");
 const Slip = @import("slip.zig");
 const Command = @import("command.zig");
+const Config = @import("config.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -31,7 +32,12 @@ pub fn main() !void {
 }
 
 fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
-    var gui = try GUI.init(allocator, false);
+    const file = try std.fs.cwd().openFile("config.ini", .{});
+    defer file.close();
+
+    const config = try Config.init(std.heap.page_allocator, file.reader());
+
+    var gui = try GUI.init(allocator, config.graphics.fullscreen, config.graphics.use_gpu);
     defer gui.deinit();
 
     var audio_device = try AudioDevice.init(allocator, 4096, null);
@@ -55,8 +61,22 @@ fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
             switch (ev) {
                 .quit => break :mainLoop,
                 .key_down => |key_ev| {
-                    if (key_ev.keycode == SDL.Keycode.escape) {
-                        try m8.resetDisplay();
+                    if (key_ev.is_repeat) {
+                        break;
+                    }
+                    switch (key_ev.keycode) {
+                        .r => try m8.resetDisplay(),
+                        .@"return" => {
+                            if (key_ev.modifiers.get(SDL.KeyModifierBit.left_alt)) {
+                                try gui.toggleFullScreen();
+                            }
+                        },
+                        else => try m8.handleKey(@enumFromInt(@intFromEnum(key_ev.keycode)), M8.KeyAction.down),
+                    }
+                },
+                .key_up => |key_ev| {
+                    switch (key_ev.keycode) {
+                        else => try m8.handleKey(@enumFromInt(@intFromEnum(key_ev.keycode)), M8.KeyAction.up),
                     }
                 },
                 else => {},

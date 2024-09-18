@@ -2,11 +2,11 @@ const std = @import("std");
 const zusb = @import("zusb");
 const RingBuffer = std.RingBuffer;
 
-const INTERFACE = 4;
-const ENDPOINT_ISO_IN = 0x85;
-const NUM_TRANSFERS = 64;
-const PACKET_SIZE = 180;
-const NUM_PACKETS = 2;
+const audio_interface_out = 4;
+const isochronous_endpoint_in = 0x85;
+const number_of_transfers = 64;
+const packet_size = 180;
+const number_of_packets = 2;
 
 const AudioUsb = @This();
 const Transfer = zusb.Transfer(RingBuffer);
@@ -23,12 +23,12 @@ pub fn init(
 ) !AudioUsb {
     std.log.info("Initialising audio", .{});
 
-    try usb_device.claimInterface(INTERFACE);
-    try usb_device.setInterfaceAltSetting(INTERFACE, 1);
+    try usb_device.claimInterface(audio_interface_out);
+    try usb_device.setInterfaceAltSetting(audio_interface_out, 1);
 
-    var transferList = try TransferList.initCapacity(allocator, NUM_TRANSFERS);
+    var transferList = try TransferList.initCapacity(allocator, number_of_transfers);
 
-    for (0..NUM_TRANSFERS) |_| {
+    for (0..number_of_transfers) |_| {
         try transferList.append(try startUsbTransfer(allocator, usb_device, ring_buffer));
     }
 
@@ -49,9 +49,9 @@ fn startUsbTransfer(
     const transfer = try Transfer.fillIsochronous(
         allocator,
         usb_device,
-        ENDPOINT_ISO_IN,
-        PACKET_SIZE,
-        NUM_PACKETS,
+        isochronous_endpoint_in,
+        packet_size,
+        number_of_packets,
         AudioUsb.transferCallback,
         ring_buffer,
         0,
@@ -65,7 +65,7 @@ fn transferCallback(ring_buffer: *RingBuffer, buffer: []const u8) void {
 }
 
 fn hasPendingTransfers(self: *AudioUsb) bool {
-    for (0..NUM_TRANSFERS) |i| {
+    for (0..number_of_transfers) |i| {
         if (self.transfers.items[i].isActive()) {
             return true;
         }
@@ -75,15 +75,15 @@ fn hasPendingTransfers(self: *AudioUsb) bool {
 
 pub fn deinit(self: *AudioUsb) void {
     std.log.debug("Deiniting USB audio", .{});
-    for (0..NUM_TRANSFERS) |i| {
+    for (0..number_of_transfers) |i| {
         self.transfers.items[i].cancel() catch |err| std.log.err("Could not cancel transfer: {}", .{err});
     }
     while (self.hasPendingTransfers()) {
         self.usb_device.ctx.handleEvents() catch |err| std.log.err("Could not handle events: {}", .{err});
     }
-    for (0..NUM_TRANSFERS) |i| {
+    for (0..number_of_transfers) |i| {
         self.transfers.items[i].deinit();
     }
-    self.usb_device.releaseInterface(INTERFACE) catch |err| std.log.err("Could not release interface: {}", .{err});
+    self.usb_device.releaseInterface(audio_interface_out) catch |err| std.log.err("Could not release interface: {}", .{err});
     self.transfers.deinit();
 }

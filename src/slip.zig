@@ -1,16 +1,18 @@
 const std = @import("std");
 
-const SLIP_SPECIAL_BYTE_END = 0xC0;
-const SLIP_SPECIAL_BYTE_ESC = 0xDB;
-
-const SLIP_ESCAPED_BYTE_END = 0xDC;
-const SLIP_ESCAPED_BYTE_ESC = 0xDD;
+const SlipByte = enum(u8) {
+    end = 0xC0,
+    esc = 0xDB,
+    esc_end = 0xDC,
+    esc_esc = 0xDD,
+    _,
+};
 
 const Handler = *const fn (buffer: []u8, user_data: *const anyopaque) bool;
 
-const SlipError = error{ BufferOverflow, UnknownEscapedByte, InvalidPacket };
+const slip_error = error{ BufferOverflow, UnknownEscapedByte, InvalidPacket };
 
-const SlipState = enum { Normal, Escaped };
+const SlipState = enum { normal, escaped };
 
 const Slip = @This();
 
@@ -18,7 +20,7 @@ allocator: std.mem.Allocator,
 buffer: []u8,
 size: usize = 0,
 handler: Handler,
-state: SlipState = SlipState.Normal,
+state: SlipState = SlipState.normal,
 user_data: *const anyopaque,
 
 pub fn init(
@@ -36,51 +38,51 @@ pub fn deinit(self: *Slip) void {
     self.allocator.free(self.buffer);
 }
 
-pub fn readAll(self: *Slip, bytes: []u8) SlipError!void {
+pub fn readAll(self: *Slip, bytes: []const u8) slip_error!void {
     for (bytes) |byte| {
-        try self.read(byte);
+        try self.read(@enumFromInt(byte));
     }
 }
 
-pub fn read(self: *Slip, byte: u8) SlipError!void {
+fn read(self: *Slip, byte: SlipByte) slip_error!void {
     switch (self.state) {
-        SlipState.Normal => switch (byte) {
-            SLIP_SPECIAL_BYTE_END => {
+        .normal => switch (byte) {
+            .end => {
                 defer self.reset();
                 if (!self.handler(self.buffer[0..self.size], self.user_data)) {
-                    return SlipError.InvalidPacket;
+                    return slip_error.InvalidPacket;
                 }
             },
-            SLIP_SPECIAL_BYTE_ESC => self.state = SlipState.Escaped,
+            .esc => self.state = .escaped,
             else => try self.byteToBuffer(byte),
         },
-        SlipState.Escaped => {
+        .escaped => {
             switch (byte) {
-                SLIP_ESCAPED_BYTE_END => try self.byteToBuffer(SLIP_SPECIAL_BYTE_END),
-                SLIP_ESCAPED_BYTE_ESC => try self.byteToBuffer(SLIP_SPECIAL_BYTE_ESC),
+                .esc_end => try self.byteToBuffer(.end),
+                .esc_esc => try self.byteToBuffer(.esc),
                 else => {
                     defer self.reset();
-                    return SlipError.UnknownEscapedByte;
+                    return slip_error.UnknownEscapedByte;
                 },
             }
-            self.state = SlipState.Normal;
+            self.state = .normal;
         },
     }
 }
 
 fn reset(slip: *Slip) void {
-    slip.state = SlipState.Normal;
+    slip.state = .normal;
     slip.size = 0;
 }
 
-fn byteToBuffer(slip: *Slip, byte: u8) SlipError!void {
+fn byteToBuffer(slip: *Slip, byte: SlipByte) slip_error!void {
     if (slip.size >= slip.buffer.len) {
         defer slip.reset();
-        return SlipError.BufferOverflow;
+        return slip_error.BufferOverflow;
     } else {
-        slip.buffer[slip.size] = byte;
+        slip.buffer[slip.size] = @intFromEnum(byte);
         slip.size += 1;
-        slip.state = SlipState.Normal;
+        slip.state = .normal;
     }
 }
 
@@ -110,25 +112,23 @@ fn testSlip(input: []const u8, expected: []const u8) !void {
 
     var slip = try Slip.init(std.testing.allocator, 1024, _TestHandler.testHandler, _testUserData);
     defer slip.deinit();
-    for (input) |elem| {
-        try slip.read(elem);
-    }
+    try slip.readAll(input);
 }
 
 test "normal string is parsed successfully" {
-    const input: []const u8 = "Hello World" ++ [_]u8{SLIP_SPECIAL_BYTE_END};
+    const input: []const u8 = "Hello World" ++ [_]u8{0xC0};
     try testSlip(input, "Hello World");
     _testExpected = undefined;
 }
 
 test "escaped string containing end byte is parsed successfully" {
-    const input: []const u8 = &[_]u8{ SLIP_SPECIAL_BYTE_ESC, SLIP_ESCAPED_BYTE_END, SLIP_SPECIAL_BYTE_END };
-    try testSlip(input, &[_]u8{SLIP_SPECIAL_BYTE_END});
+    const input: []const u8 = &[_]u8{ 0xDB, 0xDC, 0xC0 };
+    try testSlip(input, &[_]u8{0xC0});
     _testExpected = undefined;
 }
 
 test "escaped string containing esc byte is parsed successfully" {
-    const input: []const u8 = &[_]u8{ SLIP_SPECIAL_BYTE_ESC, SLIP_ESCAPED_BYTE_ESC, SLIP_SPECIAL_BYTE_END };
-    try testSlip(input, &[_]u8{SLIP_SPECIAL_BYTE_ESC});
+    const input: []const u8 = &[_]u8{ 0xDB, 0xDD, 0xC0 };
+    try testSlip(input, &[_]u8{0xDB});
     _testExpected = undefined;
 }

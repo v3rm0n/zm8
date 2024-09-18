@@ -5,13 +5,30 @@ const AudioUsb = @import("audio_usb.zig");
 
 const stdout = std.io.getStdOut().writer();
 
-const M8_VID = 0x16c0;
-const M8_PID = 0x048a;
+const m8_vid = 0x16c0;
+const m8_pid = 0x048a;
 
-const EP_OUT_ADDRESS = 0x03;
-const EP_IN_ADDRESS = 0x83;
+const serial_endpoint_out = 0x03;
+const serial_endpoint_in = 0x83;
 
 const Error = error{ InvalidFileHandle, CanNotOpenDevice };
+
+const Key = enum(u8) {
+    edit = 1,
+    option = @shlExact(1, 1),
+    right = @shlExact(1, 2),
+    play = @shlExact(1, 3),
+    shift = @shlExact(1, 4),
+    down = @shlExact(1, 5),
+    up = @shlExact(1, 6),
+    left = @shlExact(1, 7),
+    _,
+};
+
+pub const KeyAction = enum(u8) {
+    down = 0,
+    up = 1,
+};
 
 const Self = @This();
 
@@ -43,7 +60,7 @@ pub fn listDevices() !void {
             return err;
         };
 
-        if (descriptor.vendorId() == M8_VID and descriptor.productId() == M8_PID) {
+        if (descriptor.vendorId() == m8_vid and descriptor.productId() == m8_pid) {
             try stdout.print("Found M8 device: {}:{}\n", .{ device.portNumber(), device.busNumber() });
         }
     }
@@ -63,7 +80,7 @@ pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_u
     device_handle.* = if (preferred_usb_device) |dev|
         try openPreferredDevice(context, dev)
     else
-        context.openDeviceWithVidPid(M8_VID, M8_PID) catch |err| {
+        context.openDeviceWithVidPid(m8_vid, m8_pid) catch |err| {
             std.log.err("Can not open device {}", .{err});
             return Error.CanNotOpenDevice;
         } orelse return Error.CanNotOpenDevice;
@@ -101,7 +118,7 @@ fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.Dev
             return err;
         };
 
-        if (descriptor.vendorId() == M8_VID and descriptor.productId() == M8_PID) {
+        if (descriptor.vendorId() == m8_vid and descriptor.productId() == m8_pid) {
             if (device.portNumber() == port and device.busNumber() == bus) {
                 try stdout.print("Found preferred M8 device: {}:{}\n", .{ device.portNumber(), device.busNumber() });
                 return try device.open();
@@ -109,7 +126,7 @@ fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.Dev
         }
     }
     try stdout.print("Preferred device not found, using the first available device\n", .{});
-    return try context.openDeviceWithVidPid(M8_VID, M8_PID) orelse return Error.CanNotOpenDevice;
+    return try context.openDeviceWithVidPid(m8_vid, m8_pid) orelse return Error.CanNotOpenDevice;
 }
 
 pub fn initWithFile(file_handle: std.fs.File.Handle) (Error || zusb.Error)!Self {
@@ -138,14 +155,14 @@ fn initInterface(device_handle: *zusb.DeviceHandle) zusb.Error!void {
 }
 
 pub fn readSerial(self: *Self, buffer: []u8) zusb.Error!usize {
-    return self.device_handle.readBulk(EP_IN_ADDRESS, buffer, 10) catch |err| switch (err) {
+    return self.device_handle.readBulk(serial_endpoint_in, buffer, 10) catch |err| switch (err) {
         zusb.Error.Timeout => return 0,
         else => return err,
     };
 }
 
 pub fn writeSerial(self: *Self, buffer: []const u8) zusb.Error!usize {
-    return try self.device_handle.writeBulk(EP_OUT_ADDRESS, buffer, 5);
+    return try self.device_handle.writeBulk(serial_endpoint_out, buffer, 5);
 }
 
 pub fn resetDisplay(self: *Self) zusb.Error!void {
@@ -164,6 +181,23 @@ pub fn disconnect(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'D'};
     _ = try self.writeSerial(&reset);
+}
+
+pub fn handleKey(self: *Self, key: Key, action: KeyAction) !void {
+    std.log.debug("Handling key {}", .{key});
+    switch (key) {
+        .edit, .option, .right, .play, .shift, .down, .up, .left => {
+            const KeyState = struct {
+                var state: u8 = 0;
+            };
+            switch (action) {
+                .down => KeyState.state |= @intFromEnum(key),
+                .up => KeyState.state &= ~@intFromEnum(key),
+            }
+            _ = try self.sendController(KeyState.state);
+        },
+        else => {},
+    }
 }
 
 pub fn sendController(self: *Self, input: u8) zusb.Error!void {

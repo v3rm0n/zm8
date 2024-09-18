@@ -6,8 +6,6 @@ const IniMaps = std.StringHashMapUnmanaged(IniMap);
 
 const Config = @This();
 
-const err = error{Generic};
-
 const Graphics = struct {
     fullscreen: bool = true,
     use_gpu: bool = true,
