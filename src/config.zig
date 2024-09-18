@@ -81,10 +81,9 @@ pub fn init(
     };
 
     var ini_maps = IniMaps{};
-    try ini_maps.put(allocator, "graphics", IniMap{});
-    try ini_maps.put(allocator, "audio", IniMap{});
-    try ini_maps.put(allocator, "keypad", IniMap{});
-    try ini_maps.put(allocator, "gamepad", IniMap{});
+    inline for (@typeInfo(Config).@"struct".fields) |field| {
+        try ini_maps.put(allocator, field.name, IniMap{});
+    }
 
     var section: ?[]const u8 = null;
 
