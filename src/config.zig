@@ -1,8 +1,8 @@
 const ini = @import("ini");
 const std = @import("std");
 
-const IniMap = std.StringHashMapUnmanaged([]const u8);
-const IniMaps = std.StringHashMapUnmanaged(IniMap);
+const IniMap = std.StringHashMap([]const u8);
+const IniMaps = std.StringHashMap(IniMap);
 
 const Config = @This();
 
@@ -16,8 +16,12 @@ const Graphics = struct {
 
 const Audio = struct {
     audio_enabled: bool = true,
-    audio_buffer_size: u32 = 4096,
+    audio_buffer_size: u16 = 4096,
     audio_device_name: []const u8 = "Default",
+
+    pub fn deinit(self: Audio, allocator: std.mem.Allocator) void {
+        allocator.free(self.audio_device_name);
+    }
 };
 
 const Keyboard = struct {
@@ -78,9 +82,12 @@ pub fn init(
         .gamepad = .{},
     };
 
-    var ini_maps = IniMaps{};
-    inline for (@typeInfo(Config).@"struct".fields) |field| {
-        try ini_maps.put(allocator, field.name, IniMap{});
+    var ini_maps = IniMaps.init(allocator);
+    defer ini_maps.deinit();
+
+    inline for (std.meta.fieldNames(Config)) |name| {
+        const map = IniMap.init(allocator);
+        try ini_maps.put(name, map);
     }
 
     var section: ?[]const u8 = null;
@@ -95,39 +102,64 @@ pub fn init(
             },
             .property => |kv| {
                 if (section) |sec| {
-                    var section_map = ini_maps.getPtr(sec) orelse {
+                    var section_map: *IniMap = ini_maps.getPtr(sec) orelse {
                         std.log.err("Unknown section: {s}", .{sec});
                         continue;
                     };
-                    try section_map.put(allocator, try allocator.dupe(u8, kv.key), try allocator.dupe(u8, kv.value));
+                    try section_map.put(try allocator.dupe(u8, kv.key), try allocator.dupe(u8, kv.value));
                 }
             },
             else => {},
         }
     }
-    inline for (@typeInfo(Config).@"struct".fields) |field| {
-        try iterateFields(field.type, &@field(&config, field.name), ini_maps.get(field.name));
+
+    if (section) |sec| {
+        allocator.free(sec);
     }
+
+    inline for (@typeInfo(Config).@"struct".fields) |field| {
+        try iterateFields(field.type, allocator, &@field(&config, field.name), ini_maps.getPtr(field.name));
+    }
+
+    var iterator = ini_maps.valueIterator();
+
+    while (iterator.next()) |ini_map| {
+        ini_map.deinit();
+    }
+
     return config;
 }
 
-fn iterateFields(comptime T: type, config_ptr: *T, ini_map: ?IniMap) !void {
+pub fn deinit(self: Config, allocator: std.mem.Allocator) void {
+    self.audio.deinit(allocator);
+}
+
+fn iterateFields(comptime T: type, allocator: std.mem.Allocator, config_ptr: *T, ini_map: ?*IniMap) !void {
     if (ini_map) |map| {
         const type_info = @typeInfo(T);
         switch (type_info) {
             .@"struct" => |struct_info| {
                 inline for (struct_info.fields) |field| {
-                    if (map.get(field.name)) |value| {
+                    if (map.getPtr(field.name)) |value_ptr| {
+                        const value = value_ptr.*;
+                        const key_ptr = map.getKeyPtr(field.name).?;
+                        allocator.free(key_ptr.*);
                         if (field.type == bool) {
                             if (std.mem.eql(u8, value, "true")) {
                                 @field(config_ptr, field.name) = true;
                             } else if (std.mem.eql(u8, value, "false")) {
                                 @field(config_ptr, field.name) = false;
                             }
+                            allocator.free(value_ptr.*);
+                        } else if (field.type == u16) {
+                            @field(config_ptr, field.name) = try std.fmt.parseInt(u16, value, 10);
+                            allocator.free(value_ptr.*);
                         } else if (field.type == u32) {
                             @field(config_ptr, field.name) = try std.fmt.parseInt(u32, value, 10);
+                            allocator.free(value_ptr.*);
                         } else if (field.type == i32) {
                             @field(config_ptr, field.name) = try std.fmt.parseInt(i32, value, 10);
+                            allocator.free(value_ptr.*);
                         } else if (field.type == []const u8) {
                             @field(config_ptr, field.name) = value;
                         }
@@ -141,7 +173,7 @@ fn iterateFields(comptime T: type, config_ptr: *T, ini_map: ?IniMap) !void {
     }
 }
 
-test "parses ini file" {
+test "parses ini" {
     const ini_content =
         \\Empty line to start
         \\[graphics]
@@ -155,7 +187,23 @@ test "parses ini file" {
         \\audio_device_name=Headphones
     ;
     const reader = @constCast(&std.io.fixedBufferStream(ini_content)).reader();
-    const config = try Config.init(std.heap.page_allocator, reader);
-    try std.testing.expect(config.graphics.fullscreen == true);
-    try std.testing.expect(config.graphics.use_gpu == false);
+    const config = try Config.init(std.testing.allocator, reader);
+    defer config.deinit(std.testing.allocator);
+
+    try std.testing.expect(config.graphics.fullscreen);
+    try std.testing.expect(!config.graphics.use_gpu);
+    try std.testing.expect(std.mem.eql(u8, config.audio.audio_device_name, "Headphones"));
+}
+
+test "parses ini from file" {
+    const config_file = try std.fs.cwd().openFile("config.ini", .{});
+    defer config_file.close();
+
+    const config = try Config.init(std.testing.allocator, config_file.reader());
+    defer config.deinit(std.testing.allocator);
+
+    try std.testing.expect(!config.graphics.fullscreen);
+    try std.testing.expect(config.graphics.use_gpu);
+    try std.testing.expect(config.graphics.wait_packets == 128);
+    try std.testing.expect(std.mem.eql(u8, config.audio.audio_device_name, "Default"));
 }

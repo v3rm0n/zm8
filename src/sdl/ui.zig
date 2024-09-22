@@ -1,12 +1,6 @@
 const SDL = @import("sdl2");
 const std = @import("std");
-const Command = @import("command.zig");
-const HardwareType = @import("command.zig").HardwareType;
-const Position = @import("command.zig").Position;
-const Color = @import("command.zig").Color;
-const Size = @import("command.zig").Size;
-const M8Model = @import("command.zig").M8Model;
-const Font = @import("font.zig");
+const SDLFont = @import("font.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -14,20 +8,19 @@ const texture_width = 320;
 const texture_height = 240;
 
 var dirty: bool = true;
-var background_color: SDL.Color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-var m8_model: M8Model = M8Model.V1;
+var background_color: SDL.Color = SDL.Color.black;
 
-const GUI = @This();
+const UI = @This();
 
 allocator: std.mem.Allocator,
 window: SDL.Window,
 renderer: SDL.Renderer,
 main_texture: SDL.Texture,
 full_screen: bool,
-font: Font,
+font: SDLFont,
 
-pub fn init(allocator: std.mem.Allocator, full_screen: bool, use_gpu: bool) !GUI {
-    std.log.debug("Initialising GUI", .{});
+pub fn init(allocator: std.mem.Allocator, full_screen: bool, use_gpu: bool) !UI {
+    std.log.debug("Initialising SDL UI", .{});
     try SDL.init(SDL.InitFlags.everything);
 
     const window = try SDL.createWindow(
@@ -64,92 +57,54 @@ pub fn init(allocator: std.mem.Allocator, full_screen: bool, use_gpu: bool) !GUI
 
     dirty = true;
 
-    return GUI{
+    return .{
         .allocator = allocator,
         .window = window,
         .renderer = renderer,
         .main_texture = main_texture,
         .full_screen = full_screen,
-        .font = try Font.init(renderer, m8_model),
+        .font = try SDLFont.init(renderer, false, false),
     };
 }
 
-pub fn toggleFullScreen(gui: *GUI) !void {
-    gui.full_screen = !gui.full_screen;
-    try gui.window.setFullscreen(if (gui.full_screen) .fullscreen else .default);
+pub fn toggleFullScreen(self: *UI) !void {
+    self.full_screen = !self.full_screen;
+    try self.window.setFullscreen(if (self.full_screen) .fullscreen else .default);
     _ = try SDL.showCursor(true);
 }
 
-pub fn handleCommand(gui: *GUI, command: Command) !void {
-    switch (command.data) {
-        .system => |cmd| {
-            try stdout.print("** Hardware info ** Device type: {}, Firmware ver {}.{}.{}\n", .{
-                cmd.hardware,
-                cmd.version.major,
-                cmd.version.minor,
-                cmd.version.patch,
-            });
-            if (cmd.hardware == HardwareType.ProductionM8Model2) {
-                setModel(M8Model.V2);
-            } else {
-                setModel(M8Model.V1);
-            }
-        },
-        .rectangle => |cmd| {
-            try gui.drawRectangle(cmd.position, cmd.size, cmd.color);
-        },
-        .character => |cmd| {
-            try gui.drawCharacter(cmd.character, cmd.position, cmd.foreground, cmd.background);
-        },
-        .joypad => {
-            std.log.debug("Joypad command", .{});
-        },
-        .oscilloscope => |cmd| {
-            try gui.drawOscilloscope(cmd.waveform, cmd.color);
-        },
-    }
-}
-
-fn setModel(model: M8Model) void {
-    m8_model = model;
-}
-
-fn drawCharacter(
-    self: *GUI,
+pub fn drawCharacter(
+    self: *UI,
     character: u8,
-    position: Position,
-    foreground: Color,
-    background: Color,
+    position: SDL.Point,
+    foreground: SDL.Color,
+    background: SDL.Color,
 ) !void {
     try self.font.draw(self.renderer, character, position, foreground, background);
     dirty = true;
 }
 
-fn drawRectangle(
-    self: *GUI,
-    position: Position,
-    size: Size,
-    color: Color,
+pub fn drawRectangle(
+    self: *UI,
+    position: SDL.Point,
+    width: u16,
+    height: u16,
+    color: SDL.Color,
 ) !void {
-    const y = @as(i16, @intCast(position.y)) + self.font.inline_font.screen_offset_y;
+    const y = position.y + self.font.inline_font.screen_offset_y;
     const rectangle = SDL.Rectangle{
         .x = position.x,
         .y = y,
-        .width = size.width,
-        .height = size.height,
+        .width = width,
+        .height = height,
     };
 
     if (rectangle.x == 0 and rectangle.y <= 0 and rectangle.width == texture_width and rectangle.height >= texture_height) {
         std.log.debug("Setting background color", .{});
-        background_color = SDL.Color{
-            .r = color.r,
-            .g = color.g,
-            .b = color.b,
-            .a = 0xFF,
-        };
+        background_color = color;
     }
 
-    try self.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
+    try self.renderer.setColor(color);
     try self.renderer.fillRect(rectangle);
     dirty = true;
 }
@@ -157,10 +112,10 @@ fn drawRectangle(
 var waveform_clear = false;
 var previous_waveform_len: usize = 0;
 
-fn drawOscilloscope(
-    self: *GUI,
-    waveform: []u8,
-    color: Color,
+pub fn drawOscilloscope(
+    self: *UI,
+    waveform: []const u8,
+    color: SDL.Color,
 ) !void {
     if (!(waveform_clear and waveform.len == 0)) {
         const waveform_rectangle = if (waveform.len > 0)
@@ -177,9 +132,9 @@ fn drawOscilloscope(
                 .width = @intCast(previous_waveform_len),
                 .height = self.font.inline_font.waveform_max_height + 1,
             };
-        try self.renderer.setColorRGBA(background_color.r, background_color.g, background_color.b, background_color.a);
+        try self.renderer.setColor(background_color);
         try self.renderer.fillRect(waveform_rectangle);
-        try self.renderer.setColorRGBA(color.r, color.g, color.b, 0xFF);
+        try self.renderer.setColor(color);
 
         var waveform_points = try self.allocator.alloc(SDL.Point, waveform.len);
         defer self.allocator.free(waveform_points);
@@ -202,7 +157,7 @@ fn drawOscilloscope(
     }
 }
 
-pub fn render(self: *GUI) !void {
+pub fn render(self: *UI) !void {
     if (dirty) {
         dirty = false;
         try self.renderer.setTarget(null);
@@ -214,8 +169,8 @@ pub fn render(self: *GUI) !void {
     }
 }
 
-pub fn deinit(self: GUI) void {
-    std.log.debug("Deinit GUI", .{});
+pub fn deinit(self: UI) void {
+    std.log.debug("Deinit SDL UI", .{});
     self.window.destroy();
     self.renderer.destroy();
     self.main_texture.destroy();

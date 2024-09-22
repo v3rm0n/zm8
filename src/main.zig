@@ -1,11 +1,14 @@
 const std = @import("std");
-const GUI = @import("gui.zig");
+const SDLUI = @import("sdl/ui.zig");
 const M8 = @import("m8.zig");
 const SDL = @import("sdl2");
-const AudioDevice = @import("audio_device.zig");
+const SDLAudio = @import("sdl/audio.zig");
 const Slip = @import("slip.zig");
 const Command = @import("command.zig");
+const CommandHandler = @import("command_handler.zig");
 const Config = @import("config.zig");
+
+const stdout = std.io.getStdOut().writer();
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -26,31 +29,34 @@ pub fn main() !void {
         preferred_usb_device = args[2];
         std.log.info("Preferred device set to {s}", .{preferred_usb_device.?});
     }
-    start(allocator, preferred_usb_device) catch |err| {
+    startWithSDL(allocator, preferred_usb_device) catch |err| {
         std.log.err("Error: {}", .{err});
     };
 }
 
-fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
-    const file = try std.fs.cwd().openFile("config.ini", .{});
-    defer file.close();
+fn startWithSDL(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
+    const config_file = try std.fs.cwd().openFile("config.ini", .{});
+    defer config_file.close();
 
-    const config = try Config.init(std.heap.page_allocator, file.reader());
+    const config = try Config.init(allocator, config_file.reader());
+    defer config.deinit(allocator);
 
-    var gui = try GUI.init(allocator, config.graphics.fullscreen, config.graphics.use_gpu);
-    defer gui.deinit();
+    var ui = try SDLUI.init(allocator, config.graphics.fullscreen, config.graphics.use_gpu);
+    defer ui.deinit();
 
-    var audio_device = try AudioDevice.init(allocator, 4096, null);
-    defer audio_device.deinit();
+    var audio_device: ?SDLAudio = null;
+    if (config.audio.audio_enabled) {
+        audio_device = try SDLAudio.init(allocator, config.audio.audio_buffer_size, config.audio.audio_device_name);
+    }
+    defer if (audio_device) |*dev| dev.deinit();
 
-    var m8 = try M8.init(allocator, audio_device, preferred_usb_device);
+    var m8 = try M8.init(
+        allocator,
+        if (audio_device) |dev| dev.ring_buffer else null,
+        &.{ .ui = &ui },
+        preferred_usb_device,
+    );
     defer m8.deinit();
-
-    const serial_buffer = try allocator.alloc(u8, 1024);
-    defer allocator.free(serial_buffer);
-
-    var slip = try Slip.init(allocator, 1024, slipHandler, &gui);
-    defer slip.deinit();
 
     std.log.debug("Enable display", .{});
     try m8.enableAndResetDisplay();
@@ -68,37 +74,32 @@ fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
                         .r => try m8.resetDisplay(),
                         .@"return" => {
                             if (key_ev.modifiers.get(SDL.KeyModifierBit.left_alt)) {
-                                try gui.toggleFullScreen();
+                                try ui.toggleFullScreen();
                             }
                         },
-                        else => try m8.handleKey(@enumFromInt(@intFromEnum(key_ev.keycode)), M8.KeyAction.down),
+                        else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.down),
                     }
                 },
                 .key_up => |key_ev| {
                     switch (key_ev.keycode) {
-                        else => try m8.handleKey(@enumFromInt(@intFromEnum(key_ev.keycode)), M8.KeyAction.up),
+                        else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.up),
                     }
                 },
                 else => {},
             }
         }
 
-        const read_length = try m8.readSerial(serial_buffer);
-        try slip.readAll(serial_buffer[0..read_length]);
         try m8.handleEvents();
-        try gui.render();
+        try ui.render();
     }
 }
 
-fn slipHandler(buffer: []u8, user_data: *const anyopaque) bool {
-    const gui: *GUI = @ptrCast(@constCast(@alignCast(user_data)));
-    const command = Command.parseCommand(buffer) catch |err| {
-        std.log.err("Failed to parse command: {}", .{err});
-        return false;
+fn mapKey(key_code: SDL.Keycode) ?M8.Key {
+    return switch (key_code) {
+        .up => M8.Key.up,
+        .down => M8.Key.down,
+        .left => M8.Key.left,
+        .right => M8.Key.right,
+        else => null,
     };
-    gui.handleCommand(command) catch |err| {
-        std.log.err("Failed to handle command: {}", .{err});
-        return false;
-    };
-    return true;
 }

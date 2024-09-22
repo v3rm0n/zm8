@@ -8,7 +8,7 @@ const number_of_transfers = 64;
 const packet_size = 180;
 const number_of_packets = 2;
 
-const AudioUsb = @This();
+const UsbAudio = @This();
 const Transfer = zusb.Transfer(RingBuffer);
 const TransferList = std.ArrayList(*Transfer);
 
@@ -20,7 +20,7 @@ pub fn init(
     allocator: std.mem.Allocator,
     usb_device: *zusb.DeviceHandle,
     ring_buffer: *RingBuffer,
-) !AudioUsb {
+) !UsbAudio {
     std.log.info("Initialising audio", .{});
 
     try usb_device.claimInterface(audio_interface_out);
@@ -34,7 +34,7 @@ pub fn init(
 
     std.log.debug("Transfers created and submitted", .{});
 
-    return AudioUsb{
+    return .{
         .allocator = allocator,
         .usb_device = usb_device,
         .transfers = transferList,
@@ -52,7 +52,7 @@ fn startUsbTransfer(
         isochronous_endpoint_in,
         packet_size,
         number_of_packets,
-        AudioUsb.transferCallback,
+        UsbAudio.transferCallback,
         ring_buffer,
         0,
     );
@@ -64,7 +64,7 @@ fn transferCallback(ring_buffer: *RingBuffer, buffer: []const u8) void {
     ring_buffer.writeSlice(buffer) catch return;
 }
 
-fn hasPendingTransfers(self: *AudioUsb) bool {
+fn hasPendingTransfers(self: *UsbAudio) bool {
     for (0..number_of_transfers) |i| {
         if (self.transfers.items[i].isActive()) {
             return true;
@@ -73,7 +73,7 @@ fn hasPendingTransfers(self: *AudioUsb) bool {
     return false;
 }
 
-pub fn deinit(self: *AudioUsb) void {
+pub fn deinit(self: *UsbAudio) void {
     std.log.debug("Deiniting USB audio", .{});
     for (0..number_of_transfers) |i| {
         self.transfers.items[i].cancel() catch |err| std.log.err("Could not cancel transfer: {}", .{err});

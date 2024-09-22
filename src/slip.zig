@@ -8,50 +8,83 @@ const SlipByte = enum(u8) {
     _,
 };
 
-const Handler = *const fn (buffer: []u8, user_data: *const anyopaque) bool;
-
-const slip_error = error{ BufferOverflow, UnknownEscapedByte, InvalidPacket };
+const slip_error = error{ BufferOverflow, UnknownEscapedByte };
 
 const SlipState = enum { normal, escaped };
+
+const SlipPackages = struct {
+    packages: []const []const u8,
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        for (self.packages) |pkg| {
+            allocator.free(pkg);
+        }
+        allocator.free(self.packages);
+    }
+
+    pub fn iterator(self: @This()) SlipPackagesIterator {
+        return .{ .packages = self.packages };
+    }
+};
+
+const SlipPackagesIterator = struct {
+    packages: []const []const u8,
+    index: usize = 0,
+    pub fn next(self: *SlipPackagesIterator) ?[]const u8 {
+        const index = self.index;
+        for (self.packages[index..]) |pkg| {
+            self.index += 1;
+            return pkg;
+        }
+        return null;
+    }
+};
 
 const Slip = @This();
 
 allocator: std.mem.Allocator,
 buffer: []u8,
 size: usize = 0,
-handler: Handler,
 state: SlipState = SlipState.normal,
-user_data: *const anyopaque,
 
 pub fn init(
     allocator: std.mem.Allocator,
     buffer_size: usize,
-    comptime handler: Handler,
-    user_data: *const anyopaque,
 ) !Slip {
     const buffer = try allocator.alloc(u8, buffer_size);
     errdefer allocator.free(buffer);
-    return Slip{ .allocator = allocator, .buffer = buffer, .handler = handler, .user_data = user_data };
+    return .{
+        .allocator = allocator,
+        .buffer = buffer,
+    };
 }
 
 pub fn deinit(self: *Slip) void {
     self.allocator.free(self.buffer);
 }
 
-pub fn readAll(self: *Slip, bytes: []const u8) slip_error!void {
+pub fn readAll(self: *Slip, bytes: []const u8) !SlipPackages {
+    var list = std.ArrayList([]u8).init(self.allocator);
+    defer list.deinit();
+
     for (bytes) |byte| {
-        try self.read(@enumFromInt(byte));
+        const maybe_package = try self.read(@enumFromInt(byte));
+        if (maybe_package) |pkg| {
+            const pkg_copy = try self.allocator.alloc(u8, pkg.len);
+            @memcpy(pkg_copy, pkg);
+            try list.append(pkg_copy);
+        }
     }
+
+    return .{ .packages = try list.toOwnedSlice() };
 }
 
-fn read(self: *Slip, byte: SlipByte) slip_error!void {
+fn read(self: *Slip, byte: SlipByte) slip_error!?[]u8 {
     switch (self.state) {
         .normal => switch (byte) {
             .end => {
                 defer self.reset();
-                if (!self.handler(self.buffer[0..self.size], self.user_data)) {
-                    return slip_error.InvalidPacket;
-                }
+                return self.buffer[0..self.size];
             },
             .esc => self.state = .escaped,
             else => try self.byteToBuffer(byte),
@@ -68,6 +101,7 @@ fn read(self: *Slip, byte: SlipByte) slip_error!void {
             self.state = .normal;
         },
     }
+    return null;
 }
 
 fn reset(slip: *Slip) void {
@@ -86,49 +120,29 @@ fn byteToBuffer(slip: *Slip, byte: SlipByte) slip_error!void {
     }
 }
 
-var _testExpected: []const u8 = undefined;
-var _testUserData = "Test";
-
-const _TestHandler = struct {
-    fn testHandler(testBuffer: []u8, user_data: *const anyopaque) bool {
-        std.testing.expect(@as([*]u8, @ptrCast(@constCast(user_data))) == _testUserData) catch {
-            std.debug.print("User data does not match {any}!={any}", .{ @as([*]u8, @ptrCast(@constCast(user_data))), _testUserData });
-            return false;
-        };
-        std.testing.expect(testBuffer.len == _testExpected.len) catch {
-            std.debug.print("Length does not match {}!={}", .{ testBuffer.len, _testExpected.len });
-            return false;
-        };
-        std.testing.expect(std.mem.eql(u8, testBuffer, _testExpected)) catch {
-            std.debug.print("Content does not match {any}!={any}", .{ testBuffer, _testExpected });
-            return false;
-        };
-        return true;
-    }
-};
-
 fn testSlip(input: []const u8, expected: []const u8) !void {
-    _testExpected = expected;
-
-    var slip = try Slip.init(std.testing.allocator, 1024, _TestHandler.testHandler, _testUserData);
+    var slip = try Slip.init(std.testing.allocator, 1024);
     defer slip.deinit();
-    try slip.readAll(input);
+    const packages = (try slip.readAll(input));
+    defer packages.deinit(std.testing.allocator);
+    var iterator = packages.iterator();
+    while (iterator.next()) |pkg| {
+        try std.testing.expect(pkg.len == expected.len);
+        try std.testing.expect(std.mem.eql(u8, pkg, expected));
+    }
 }
 
 test "normal string is parsed successfully" {
     const input: []const u8 = "Hello World" ++ [_]u8{0xC0};
     try testSlip(input, "Hello World");
-    _testExpected = undefined;
 }
 
 test "escaped string containing end byte is parsed successfully" {
     const input: []const u8 = &[_]u8{ 0xDB, 0xDC, 0xC0 };
     try testSlip(input, &[_]u8{0xC0});
-    _testExpected = undefined;
 }
 
 test "escaped string containing esc byte is parsed successfully" {
     const input: []const u8 = &[_]u8{ 0xDB, 0xDD, 0xC0 };
     try testSlip(input, &[_]u8{0xDB});
-    _testExpected = undefined;
 }

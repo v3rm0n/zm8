@@ -14,6 +14,29 @@ pub const CommandTag = enum(u8) {
     system = 0xFF,
 };
 
+pub const CommandData = union(CommandTag) {
+    rectangle: struct {
+        position: Position,
+        size: Size,
+        color: Color,
+    },
+    character: struct {
+        character: u8,
+        position: Position,
+        foreground: Color,
+        background: Color,
+    },
+    oscilloscope: struct {
+        color: Color,
+        waveform: []const u8,
+    },
+    joypad: struct {},
+    system: struct {
+        hardware: HardwareType,
+        version: Version,
+    },
+};
+
 const CommandLimits = struct { min: usize, max: usize };
 
 fn getCommandLimits(cmd: CommandTag) CommandLimits {
@@ -55,29 +78,6 @@ pub const Version = struct {
     patch: u8,
 };
 
-pub const CommandData = union(CommandTag) {
-    rectangle: struct {
-        position: Position,
-        size: Size,
-        color: Color,
-    },
-    character: struct {
-        character: u8,
-        position: Position,
-        foreground: Color,
-        background: Color,
-    },
-    oscilloscope: struct {
-        color: Color,
-        waveform: []u8,
-    },
-    joypad: struct {},
-    system: struct {
-        hardware: HardwareType,
-        version: Version,
-    },
-};
-
 pub const HardwareType = enum(u8) {
     Headless,
     BetaM8,
@@ -87,7 +87,7 @@ pub const HardwareType = enum(u8) {
 
 data: CommandData,
 
-fn init(tag: CommandTag, data: []u8) !Command {
+fn init(tag: CommandTag, data: []const u8) !Command {
     const limits = getCommandLimits(tag);
     if (data.len < limits.min or data.len > limits.max) {
         return error.OutOfRange;
@@ -158,7 +158,7 @@ fn init(tag: CommandTag, data: []u8) !Command {
     };
 }
 
-fn rectangleSize(data: []u8) Size {
+fn rectangleSize(data: []const u8) Size {
     return switch (data.len) {
         5, 8 => .{
             .width = 1,
@@ -171,7 +171,7 @@ fn rectangleSize(data: []u8) Size {
     };
 }
 
-fn rectangleColor(data: []u8) Color {
+fn rectangleColor(data: []const u8) Color {
     return switch (data.len) {
         5, 9 => .{
             .r = 0,
@@ -191,11 +191,12 @@ fn rectangleColor(data: []u8) Color {
     };
 }
 
-pub fn parseCommand(buffer: []u8) !Command {
+pub fn parseCommand(buffer: []const u8) !Command {
+    std.log.debug("YO {}", .{buffer[0]});
     const commandTag: CommandTag = @enumFromInt(buffer[0]);
     return Command.init(commandTag, buffer);
 }
 
-fn decodeU16(data: []u8, start: usize) u16 {
+fn decodeU16(data: []const u8, start: usize) u16 {
     return @as(u16, data[start]) | (@as(u16, data[start + 1]) << 8);
 }

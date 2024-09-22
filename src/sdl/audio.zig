@@ -1,16 +1,8 @@
 const std = @import("std");
-const zusb = @import("zusb");
 const SDL = @import("sdl2");
 const RingBuffer = std.RingBuffer;
-const Transfer = zusb.Transfer;
 
-const INTERFACE = 4;
-const ENDPOINT_ISO_IN = 0x85;
-const NUM_TRANSFERS = 64;
-const PACKET_SIZE = 180;
-const NUM_PACKETS = 2;
-
-const AudioDevice = @This();
+const SDLAudio = @This();
 
 allocator: std.mem.Allocator,
 ring_buffer: *RingBuffer,
@@ -19,11 +11,11 @@ audio_device: SDL.AudioDevice,
 pub fn init(
     allocator: std.mem.Allocator,
     audio_buffer_size: u16,
-    audio_device_name: ?[*:0]const u8,
-) !AudioDevice {
+    audio_device_name: []const u8,
+) !SDLAudio {
     std.log.info("Initialising audio device", .{});
 
-    std.log.info("Capturing audio with preferred device: {s}", .{audio_device_name orelse "default"});
+    std.log.info("Capturing audio with preferred device: {s}", .{audio_device_name});
 
     if (!SDL.wasInit(.{ .audio = true }).audio) {
         std.log.info("Audio subsystem has not been inited, initing", .{});
@@ -38,13 +30,15 @@ pub fn init(
         .buffer_format = SDL.AudioFormat.s16,
         .channel_count = 2,
         .buffer_size_in_frames = audio_buffer_size,
-        .callback = AudioDevice.audioCallback,
+        .callback = SDLAudio.audioCallback,
         .userdata = @ptrCast(ring_buffer),
     };
 
     std.log.debug("Requesting audio spec {any}", .{audio_spec});
 
-    const result = try SDL.openAudioDevice(.{ .device_name = audio_device_name, .desired_spec = audio_spec });
+    const device_name: ?[*:0]const u8 = if (std.mem.eql(u8, "Default", audio_device_name)) null else try allocator.dupeZ(u8, audio_device_name);
+
+    const result = try SDL.openAudioDevice(.{ .device_name = device_name, .desired_spec = audio_spec });
 
     std.log.debug("Obtained audio spec {any}", .{result.obtained_spec});
 
@@ -54,7 +48,7 @@ pub fn init(
     std.log.debug("Unpausing audio", .{});
     result.device.pause(false);
 
-    return AudioDevice{
+    return .{
         .allocator = allocator,
         .ring_buffer = ring_buffer,
         .audio_device = result.device,
@@ -75,7 +69,7 @@ fn audioCallback(user_data: ?*anyopaque, stream: [*c]u8, length: c_int) callconv
     }
 }
 
-pub fn deinit(self: *AudioDevice) void {
+pub fn deinit(self: *SDLAudio) void {
     std.log.debug("Deiniting audio device", .{});
     self.audio_device.close();
     self.ring_buffer.deinit(self.allocator);

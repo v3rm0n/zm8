@@ -1,7 +1,11 @@
 const std = @import("std");
 const zusb = @import("zusb");
-const AudioDevice = @import("audio_device.zig");
-const AudioUsb = @import("audio_usb.zig");
+const SDLAudio = @import("sdl/audio.zig");
+const UsbAudio = @import("usb/audio.zig");
+const UsbSerial = @import("usb/serial.zig");
+const Slip = @import("slip.zig");
+const Command = @import("command.zig");
+const CommandHandler = @import("command_handler.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -13,7 +17,7 @@ const serial_endpoint_in = 0x83;
 
 const Error = error{ InvalidFileHandle, CanNotOpenDevice };
 
-const Key = enum(u8) {
+pub const Key = enum(u8) {
     edit = 1,
     option = @shlExact(1, 1),
     right = @shlExact(1, 2),
@@ -35,7 +39,10 @@ const Self = @This();
 allocator: std.mem.Allocator,
 context: *zusb.Context,
 device_handle: *zusb.DeviceHandle,
-audio: AudioUsb,
+audio: ?UsbAudio,
+serial: UsbSerial,
+slip: *Slip,
+command_handler: *const CommandHandler,
 
 pub fn listDevices() !void {
     var context = zusb.Context.init() catch |err| {
@@ -66,7 +73,12 @@ pub fn listDevices() !void {
     }
 }
 
-pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_usb_device: ?[]u8) !Self {
+pub fn init(
+    allocator: std.mem.Allocator,
+    ring_buffer: ?*std.RingBuffer,
+    command_handler: *const CommandHandler,
+    preferred_usb_device: ?[]u8,
+) !Self {
     std.log.debug("Initialising M8", .{});
     var context = try allocator.create(zusb.Context);
     errdefer allocator.destroy(context);
@@ -85,15 +97,74 @@ pub fn init(allocator: std.mem.Allocator, audio_device: AudioDevice, preferred_u
             return Error.CanNotOpenDevice;
         } orelse return Error.CanNotOpenDevice;
 
-    try initInterface(device_handle);
+    return initWithDevice(
+        allocator,
+        context,
+        device_handle,
+        ring_buffer,
+        command_handler,
+    );
+}
 
-    const audio = try AudioUsb.init(allocator, device_handle, audio_device.ring_buffer);
-    errdefer audio.deinit();
+pub fn initWithFile(
+    allocator: std.mem.Allocator,
+    ring_buffer: ?*std.RingBuffer,
+    command_handler: *const CommandHandler,
+    file_handle: std.fs.File.Handle,
+) (Error || zusb.Error)!Self {
+    if (file_handle <= 0) {
+        return Error.InvalidFileHandle;
+    }
+    try zusb.disableDeviceDiscovery();
+
+    var context = try allocator.create(zusb.Context);
+    errdefer allocator.destroy(context);
+    context.* = zusb.Context.init() catch |err| {
+        std.log.err("Libusb init failed {}\n", .{err});
+        return err;
+    };
+
+    const device_handle = try allocator.create(zusb.DeviceHandle);
+    errdefer allocator.destroy(device_handle);
+    device_handle.* = try context.openDeviceWithFd(file_handle);
+
+    return initWithDevice(
+        allocator,
+        context,
+        device_handle,
+        ring_buffer,
+        command_handler,
+    );
+}
+
+fn initWithDevice(
+    allocator: std.mem.Allocator,
+    context: *zusb.Context,
+    device_handle: *zusb.DeviceHandle,
+    ring_buffer: ?*std.RingBuffer,
+    command_handler: *const CommandHandler,
+) !Self {
+    var serial = try UsbSerial.init(allocator, device_handle);
+    errdefer serial.deinit();
+
+    var audio: ?UsbAudio = null;
+    if (ring_buffer) |rb| {
+        audio = try UsbAudio.init(allocator, device_handle, rb);
+    }
+    errdefer if (audio) |*dev| dev.deinit();
+
+    const slip = try allocator.create(Slip);
+    errdefer allocator.destroy(slip);
+    slip.* = try Slip.init(allocator, 1024);
+
     return .{
         .context = context,
         .device_handle = device_handle,
         .allocator = allocator,
         .audio = audio,
+        .serial = serial,
+        .slip = slip,
+        .command_handler = @ptrCast(command_handler),
     };
 }
 
@@ -129,96 +200,86 @@ fn openPreferredDevice(context: *zusb.Context, preferred_device: []u8) !zusb.Dev
     return try context.openDeviceWithVidPid(m8_vid, m8_pid) orelse return Error.CanNotOpenDevice;
 }
 
-pub fn initWithFile(file_handle: std.fs.File.Handle) (Error || zusb.Error)!Self {
-    if (file_handle <= 0) {
-        return Error.InvalidFileHandle;
-    }
-    try zusb.disableDeviceDiscovery();
-    var context = try zusb.Context.init();
-    var device_handle = try context.openDeviceWithFd(file_handle);
-    try initInterface(&device_handle);
-    return Self{ .context = &context, .device_handle = &device_handle };
-}
-
-fn initInterface(device_handle: *zusb.DeviceHandle) zusb.Error!void {
-    std.log.info("Claiming interfaces", .{});
-    try device_handle.claimInterface(0);
-    try device_handle.claimInterface(1);
-
-    std.log.info("Setting line state", .{});
-    _ = try device_handle.writeControl(0x21, 0x22, 0x03, 0, null, 0);
-
-    std.log.info("Set line encoding", .{});
-    const encoding = [_](u8){ 0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08 };
-    _ = try device_handle.writeControl(0x21, 0x20, 0, 0, &encoding, 0);
-    std.log.info("Interface initialisation finished", .{});
-}
-
-pub fn readSerial(self: *Self, buffer: []u8) zusb.Error!usize {
-    return self.device_handle.readBulk(serial_endpoint_in, buffer, 10) catch |err| switch (err) {
-        zusb.Error.Timeout => return 0,
-        else => return err,
-    };
-}
-
-pub fn writeSerial(self: *Self, buffer: []const u8) zusb.Error!usize {
-    return try self.device_handle.writeBulk(serial_endpoint_out, buffer, 5);
-}
-
 pub fn resetDisplay(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'R'};
-    _ = try self.writeSerial(&reset);
+    _ = try self.serial.write(&reset);
 }
 
 pub fn enableAndResetDisplay(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'E'};
-    _ = try self.writeSerial(&reset);
+    _ = try self.serial.write(&reset);
 }
 
 pub fn disconnect(self: *Self) zusb.Error!void {
     std.log.info("Resetting display", .{});
     const reset = [_]u8{'D'};
-    _ = try self.writeSerial(&reset);
+    _ = try self.serial.write(&reset);
 }
 
-pub fn handleKey(self: *Self, key: Key, action: KeyAction) !void {
-    std.log.debug("Handling key {}", .{key});
-    switch (key) {
-        .edit, .option, .right, .play, .shift, .down, .up, .left => {
-            const KeyState = struct {
-                var state: u8 = 0;
-            };
-            switch (action) {
-                .down => KeyState.state |= @intFromEnum(key),
-                .up => KeyState.state &= ~@intFromEnum(key),
-            }
-            _ = try self.sendController(KeyState.state);
-        },
-        else => {},
+pub fn handleKey(self: *Self, opt_key: ?Key, action: KeyAction) !void {
+    if (opt_key) |key| {
+        std.log.debug("Handling key {}", .{key});
+        switch (key) {
+            .edit, .option, .right, .play, .shift, .down, .up, .left => {
+                const KeyState = struct {
+                    var state: u8 = 0;
+                };
+                switch (action) {
+                    .down => KeyState.state |= @intFromEnum(key),
+                    .up => KeyState.state &= ~@intFromEnum(key),
+                }
+                _ = try self.sendController(KeyState.state);
+            },
+            else => {},
+        }
     }
 }
 
 pub fn sendController(self: *Self, input: u8) zusb.Error!void {
     std.log.info("Sending controller, input={}", .{input});
-    _ = try self.writeSerial(&[_]u8{ 'C', input });
+    _ = try self.serial.write(&[_]u8{ 'C', input });
 }
 
 pub fn sendKeyjazz(self: *Self, note: u8, velocity: u8) zusb.Error!void {
     std.log.info("Sending keyjazz. Note={}, velocity={}", .{ note, velocity });
-    _ = try self.writeSerial(&[_]u8{ 'K', note, if (velocity > 0x7F) 0x7F else velocity });
+    _ = try self.serial.write(&[_]u8{ 'K', note, if (velocity > 0x7F) 0x7F else velocity });
 }
 
 pub fn deinit(self: *Self) void {
     std.log.debug("Deiniting M8", .{});
-    self.audio.deinit();
+    if (self.audio) |*audio| audio.deinit();
+    self.serial.deinit();
+    self.slip.deinit();
+    self.allocator.destroy(self.slip);
     self.device_handle.deinit();
     self.allocator.destroy(self.device_handle);
     self.context.deinit();
     self.allocator.destroy(self.context);
 }
 
-pub fn handleEvents(usb: Self) !void {
-    try usb.context.handleEvents();
+pub fn handleEvents(self: Self) !void {
+    var serial_buffer: [1024]u8 = undefined;
+    const read_length = try self.serial.read(&serial_buffer);
+    const packages = try self.slip.readAll(serial_buffer[0..read_length]);
+    defer packages.deinit(self.allocator);
+    var iterator = packages.iterator();
+
+    while (iterator.next()) |pkg| {
+        _ = self.slipPackage(pkg);
+    }
+    try self.context.handleEvents();
+}
+
+fn slipPackage(self: Self, buffer: []const u8) bool {
+    const command = Command.parseCommand(buffer) catch |err| {
+        std.log.err("Failed to parse command: {}", .{err});
+        return false;
+    };
+    self.command_handler.handleCommand(command) catch |err| {
+        std.log.err("Failed to handle command: {}", .{err});
+        return false;
+    };
+    return true;
 }

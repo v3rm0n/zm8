@@ -1,17 +1,14 @@
 const std = @import("std");
 const SDL = @import("sdl2");
-const M8Model = @import("command.zig").M8Model;
-const Position = @import("command.zig").Position;
-const Color = @import("command.zig").Color;
 
-const Font = @This();
+const SDLFont = @This();
 
-const CHARACTERS_PER_ROW = 94;
-const CHARACTERS_PER_COLUMN = 1;
+const characters_per_row = 94;
+const characters_per_column = 1;
 
-const font_offset: u16 = 127 - CHARACTERS_PER_ROW * CHARACTERS_PER_COLUMN;
+const font_offset: u16 = 127 - characters_per_row * characters_per_column;
 
-var foreground_color: ?Color = null;
+var foreground_color: ?SDL.Color = null;
 
 pub const InlineFont = struct {
     width: u16,
@@ -24,6 +21,77 @@ pub const InlineFont = struct {
     waveform_max_height: u8,
     image_data: []const u8,
 };
+
+const fonts = [_]InlineFont{ font_v1_small, font_v1_large, font_v2_small, font_v2_large };
+
+inline_font: InlineFont,
+texture: SDL.Texture,
+
+pub fn init(renderer: SDL.Renderer, v2: bool, large: bool) !SDLFont {
+    std.log.info("Initialising SDL Font. v2={}, large={}", .{ v2, large });
+    const offset: u8 = if (large) 1 else 0;
+    const selected_font = if (v2) fonts[2 + offset] else fonts[0 + offset];
+    const surface = try SDL.loadBmpFromConstMem(selected_font.image_data);
+    defer surface.destroy();
+
+    try surface.setColorKey(true, SDL.Color.black);
+
+    const texture = try SDL.createTextureFromSurface(renderer, surface);
+
+    return .{
+        .inline_font = selected_font,
+        .texture = texture,
+    };
+}
+
+pub fn deinit(self: SDLFont) void {
+    std.log.debug("Deiniting SDL Font", .{});
+    self.texture.destroy();
+}
+
+pub fn draw(
+    self: SDLFont,
+    renderer: SDL.Renderer,
+    character: u8,
+    position: SDL.Point,
+    foreground: SDL.Color,
+    background: SDL.Color,
+) !void {
+    const y = position.y + self.inline_font.text_offset_y + self.inline_font.screen_offset_y;
+    const id = @as(i32, character) - SDLFont.font_offset;
+    const src_width = self.inline_font.width / characters_per_row;
+
+    const src_rect = SDL.Rectangle{
+        .x = id * src_width,
+        .y = 0,
+        .width = src_width,
+        .height = self.inline_font.height / characters_per_column,
+    };
+
+    const dest_rect = SDL.Rectangle{
+        .x = position.x,
+        .y = y,
+        .width = src_rect.width,
+        .height = src_rect.height,
+    };
+
+    if (foreground_color == null or !std.meta.eql(foreground, foreground_color.?)) {
+        try self.texture.setColorMod(foreground);
+        foreground_color = foreground;
+    }
+
+    if (!std.meta.eql(foreground, background)) {
+        const bg_rect = SDL.Rectangle{
+            .x = dest_rect.x,
+            .y = dest_rect.y,
+            .width = self.inline_font.glyph_x,
+            .height = self.inline_font.glyph_y,
+        };
+        try renderer.setColor(background);
+        try renderer.fillRect(bg_rect);
+    }
+    try renderer.copy(self.texture, dest_rect, src_rect);
+}
 
 const font_v1_small = InlineFont{
     .width = 470,
@@ -347,81 +415,3 @@ const font_v2_large = InlineFont{
         0xFF, 0xFF, 0xFF, 0xF0, 0x00, 0xFF, 0x00, 0x3F, 0xF0, 0x00, 0x00,
     },
 };
-
-const fonts = [_]InlineFont{ font_v1_small, font_v1_large, font_v2_small, font_v2_large };
-
-inline_font: InlineFont,
-texture: SDL.Texture,
-
-pub fn init(renderer: SDL.Renderer, hardware: M8Model) !Font {
-    const selected_font = if (hardware == M8Model.V1) fonts[0] else fonts[2];
-    const surface = try SDL.loadBmpFromConstMem(selected_font.image_data);
-    defer surface.destroy();
-
-    try surface.setColorKey(true, SDL.Color.black);
-
-    const texture = try SDL.createTextureFromSurface(renderer, surface);
-
-    return .{
-        .inline_font = font_v1_small,
-        .texture = texture,
-    };
-}
-
-pub fn deinit(self: Font) void {
-    self.texture.destroy();
-}
-
-pub fn draw(
-    self: Font,
-    renderer: SDL.Renderer,
-    character: u8,
-    position: Position,
-    foreground: Color,
-    background: Color,
-) !void {
-    const y = @as(i16, @intCast(position.y)) + self.inline_font.text_offset_y + self.inline_font.screen_offset_y;
-    const id = @as(i32, character) - Font.font_offset;
-    const src_width = self.inline_font.width / CHARACTERS_PER_ROW;
-
-    const src_rect = SDL.Rectangle{
-        .x = id * src_width,
-        .y = 0,
-        .width = src_width,
-        .height = self.inline_font.height / CHARACTERS_PER_COLUMN,
-    };
-
-    const dest_rect = SDL.Rectangle{
-        .x = position.x,
-        .y = y,
-        .width = src_rect.width,
-        .height = src_rect.height,
-    };
-
-    if (!foreground.eql(foreground_color)) {
-        try self.texture.setColorMod(.{
-            .r = foreground.r,
-            .g = foreground.g,
-            .b = foreground.b,
-            .a = 0xFF,
-        });
-        foreground_color = foreground;
-    }
-
-    if (!foreground.eql(background)) {
-        const bg_rect = SDL.Rectangle{
-            .x = dest_rect.x,
-            .y = dest_rect.y,
-            .width = self.inline_font.glyph_x,
-            .height = self.inline_font.glyph_y,
-        };
-        try renderer.setColor(.{
-            .r = background.r,
-            .g = background.g,
-            .b = background.b,
-            .a = 0xFF,
-        });
-        try renderer.fillRect(bg_rect);
-    }
-    try renderer.copy(self.texture, dest_rect, src_rect);
-}
