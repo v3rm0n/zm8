@@ -100,6 +100,10 @@ fn mapKey(key_code: SDL.Keycode) ?M8.Key {
         .down => M8.Key.down,
         .left => M8.Key.left,
         .right => M8.Key.right,
+        .z => M8.Key.option,
+        .x => M8.Key.edit,
+        .space => M8.Key.play,
+        .left_shift => M8.Key.shift,
         else => null,
     };
 }
