@@ -1,9 +1,5 @@
 [
   {
-    "label": "Zig Run",
-    "command": "zig build run"
-  },
-  {
     "label": "Zig Run as Superuser",
     "command": "sudo zig build run"
   },
@@ -14,17 +10,5 @@
   {
     "label": "Zig Run --dev as Superuser",
     "command": "sudo zig build run -- --dev 1:1"
-  },
-  {
-    "label": "Zig test current file",
-    "command": "zig test $ZED_FILE"
-  },
-  {
-    "label": "Zig Test",
-    "command": "zig build test --summary all"
-  },
-  {
-    "label": "Zig Build",
-    "command": "zig build -freference-trace=16"
   }
 ]

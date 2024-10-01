@@ -5,7 +5,7 @@ const SDL = @import("sdl2");
 const SDLAudio = @import("sdl/audio.zig");
 const Slip = @import("slip.zig");
 const Command = @import("command.zig");
-const CommandHandler = @import("command_handler.zig");
+const SDLHandler = @import("sdl_handler.zig");
 const Config = @import("config.zig");
 
 const stdout = std.io.getStdOut().writer();
@@ -30,7 +30,7 @@ pub fn main() !void {
         std.log.info("Preferred device set to {s}", .{preferred_usb_device.?});
     }
     startWithSDL(allocator, preferred_usb_device) catch |err| {
-        std.log.err("Error: {}", .{err});
+        std.log.err("Error from SDL execution: {}", .{err});
     };
 }
 
@@ -50,60 +50,23 @@ fn startWithSDL(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void
     }
     defer if (audio_device) |*dev| dev.deinit();
 
+    var sdl_handler = SDLHandler{ .ui = &ui };
+    const handler = sdl_handler.handler();
+
     var m8 = try M8.init(
         allocator,
-        if (audio_device) |dev| dev.ring_buffer else null,
-        &.{ .ui = &ui },
+        if (audio_device) |dev| dev.audio_buffer else null,
+        &handler,
         preferred_usb_device,
     );
+
     defer m8.deinit();
+
+    const start = try m8.start();
+    defer start.deinit();
 
     std.log.debug("Enable display", .{});
     try m8.enableAndResetDisplay();
 
-    std.log.info("Starting main loop", .{});
-    mainLoop: while (true) {
-        while (SDL.pollEvent()) |ev| {
-            switch (ev) {
-                .quit => break :mainLoop,
-                .key_down => |key_ev| {
-                    if (key_ev.is_repeat) {
-                        break;
-                    }
-                    switch (key_ev.keycode) {
-                        .r => try m8.resetDisplay(),
-                        .@"return" => {
-                            if (key_ev.modifiers.get(SDL.KeyModifierBit.left_alt)) {
-                                try ui.toggleFullScreen();
-                            }
-                        },
-                        else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.down),
-                    }
-                },
-                .key_up => |key_ev| {
-                    switch (key_ev.keycode) {
-                        else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.up),
-                    }
-                },
-                else => {},
-            }
-        }
-
-        try m8.handleEvents();
-        try ui.render();
-    }
-}
-
-fn mapKey(key_code: SDL.Keycode) ?M8.Key {
-    return switch (key_code) {
-        .up => M8.Key.up,
-        .down => M8.Key.down,
-        .left => M8.Key.left,
-        .right => M8.Key.right,
-        .z => M8.Key.option,
-        .x => M8.Key.edit,
-        .space => M8.Key.play,
-        .left_shift => M8.Key.shift,
-        else => null,
-    };
+    try handler.start(&m8);
 }

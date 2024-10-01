@@ -48,10 +48,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe_unit_tests.linkSystemLibrary("usb-1.0");
-
-    sdk.link(exe_unit_tests, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
-    exe_unit_tests.root_module.addImport("sdl2", sdk.getWrapperModule());
     exe_unit_tests.root_module.addImport("ini", ini.module("ini"));
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);

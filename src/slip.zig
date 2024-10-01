@@ -22,6 +22,10 @@ const SlipPackages = struct {
         allocator.free(self.packages);
     }
 
+    pub fn size(self: @This()) usize {
+        return self.packages.len;
+    }
+
     pub fn iterator(self: @This()) SlipPackagesIterator {
         return .{ .packages = self.packages };
     }
@@ -40,90 +44,84 @@ const SlipPackagesIterator = struct {
     }
 };
 
-const Slip = @This();
+pub fn Slip(
+    comptime buffer_size: usize,
+) type {
+    const BufferType = std.BoundedArray(u8, buffer_size);
 
-allocator: std.mem.Allocator,
-buffer: []u8,
-size: usize = 0,
-state: SlipState = SlipState.normal,
+    return struct {
+        const Self = @This();
 
-pub fn init(
-    allocator: std.mem.Allocator,
-    buffer_size: usize,
-) !Slip {
-    const buffer = try allocator.alloc(u8, buffer_size);
-    errdefer allocator.free(buffer);
-    return .{
-        .allocator = allocator,
-        .buffer = buffer,
+        buffer: BufferType,
+        state: SlipState,
+
+        pub fn init() !Self {
+            return .{
+                .buffer = try BufferType.init(0),
+                .state = SlipState.normal,
+            };
+        }
+
+        pub fn readAll(self: *Self, allocator: std.mem.Allocator, bytes: []const u8) !SlipPackages {
+            var list = std.ArrayList([]u8).init(allocator);
+            defer list.deinit();
+
+            for (bytes) |byte| {
+                const maybe_package = try self.read(@enumFromInt(byte));
+                if (maybe_package) |pkg| {
+                    const pkg_copy = try allocator.alloc(u8, pkg.len);
+                    @memcpy(pkg_copy, pkg);
+                    try list.append(pkg_copy);
+                }
+            }
+
+            return .{ .packages = try list.toOwnedSlice() };
+        }
+
+        fn read(self: *Self, byte: SlipByte) slip_error!?[]u8 {
+            switch (self.state) {
+                .normal => switch (byte) {
+                    .end => {
+                        defer self.reset();
+                        return self.buffer.slice();
+                    },
+                    .esc => self.state = .escaped,
+                    else => try self.byteToBuffer(byte),
+                },
+                .escaped => {
+                    switch (byte) {
+                        .esc_end => try self.byteToBuffer(.end),
+                        .esc_esc => try self.byteToBuffer(.esc),
+                        else => {
+                            defer self.reset();
+                            return slip_error.UnknownEscapedByte;
+                        },
+                    }
+                    self.state = .normal;
+                },
+            }
+            return null;
+        }
+
+        fn reset(slip: *Self) void {
+            slip.state = .normal;
+            slip.buffer.clear();
+        }
+
+        fn byteToBuffer(slip: *Self, byte: SlipByte) slip_error!void {
+            slip.buffer.append(@intFromEnum(byte)) catch {
+                defer slip.reset();
+                return slip_error.BufferOverflow;
+            };
+            slip.state = .normal;
+        }
     };
 }
 
-pub fn deinit(self: *Slip) void {
-    self.allocator.free(self.buffer);
-}
-
-pub fn readAll(self: *Slip, bytes: []const u8) !SlipPackages {
-    var list = std.ArrayList([]u8).init(self.allocator);
-    defer list.deinit();
-
-    for (bytes) |byte| {
-        const maybe_package = try self.read(@enumFromInt(byte));
-        if (maybe_package) |pkg| {
-            const pkg_copy = try self.allocator.alloc(u8, pkg.len);
-            @memcpy(pkg_copy, pkg);
-            try list.append(pkg_copy);
-        }
-    }
-
-    return .{ .packages = try list.toOwnedSlice() };
-}
-
-fn read(self: *Slip, byte: SlipByte) slip_error!?[]u8 {
-    switch (self.state) {
-        .normal => switch (byte) {
-            .end => {
-                defer self.reset();
-                return self.buffer[0..self.size];
-            },
-            .esc => self.state = .escaped,
-            else => try self.byteToBuffer(byte),
-        },
-        .escaped => {
-            switch (byte) {
-                .esc_end => try self.byteToBuffer(.end),
-                .esc_esc => try self.byteToBuffer(.esc),
-                else => {
-                    defer self.reset();
-                    return slip_error.UnknownEscapedByte;
-                },
-            }
-            self.state = .normal;
-        },
-    }
-    return null;
-}
-
-fn reset(slip: *Slip) void {
-    slip.state = .normal;
-    slip.size = 0;
-}
-
-fn byteToBuffer(slip: *Slip, byte: SlipByte) slip_error!void {
-    if (slip.size >= slip.buffer.len) {
-        defer slip.reset();
-        return slip_error.BufferOverflow;
-    } else {
-        slip.buffer[slip.size] = @intFromEnum(byte);
-        slip.size += 1;
-        slip.state = .normal;
-    }
-}
-
 fn testSlip(input: []const u8, expected: []const u8) !void {
-    var slip = try Slip.init(std.testing.allocator, 1024);
-    defer slip.deinit();
-    const packages = (try slip.readAll(input));
+    const TestSlip = Slip(1024);
+    var slip = try TestSlip.init();
+    const packages = try slip.readAll(std.testing.allocator, input);
     defer packages.deinit(std.testing.allocator);
     var iterator = packages.iterator();
     while (iterator.next()) |pkg| {

@@ -27,6 +27,7 @@ pub fn init(
     try usb_device.setInterfaceAltSetting(audio_interface_out, 1);
 
     var transferList = try TransferList.initCapacity(allocator, number_of_transfers);
+    errdefer transferList.deinit();
 
     for (0..number_of_transfers) |_| {
         try transferList.append(try startUsbTransfer(allocator, usb_device, ring_buffer));
@@ -52,16 +53,32 @@ fn startUsbTransfer(
         isochronous_endpoint_in,
         packet_size,
         number_of_packets,
-        UsbAudio.transferCallback,
+        transferCallback,
         ring_buffer,
         0,
+        .{},
     );
     try transfer.submit();
     return transfer;
 }
 
-fn transferCallback(ring_buffer: *RingBuffer, buffer: []const u8) void {
-    ring_buffer.writeSlice(buffer) catch return;
+fn transferCallback(transfer: *Transfer) void {
+    if (transfer.transferStatus() != zusb.TransferStatus.Completed) {
+        return;
+    }
+    var isoPackets = transfer.isoPackets();
+    while (isoPackets.next()) |pack| {
+        if (!pack.isCompleted()) {
+            std.log.info("Isochronous transfer failed, status: {}", .{pack.status()});
+            continue;
+        }
+        var ring_buffer = transfer.user_data.?;
+
+        ring_buffer.writeSlice(pack.buffer()) catch |e| {
+            std.log.err("Failed to call isochronous transfer callback: {}", .{e});
+        };
+    }
+    transfer.submit() catch |e| std.log.err("Failed to resubmit bulk/interrupt transfer: {}", .{e});
 }
 
 fn hasPendingTransfers(self: *UsbAudio) bool {

@@ -72,7 +72,11 @@ pub fn init(
     allocator: std.mem.Allocator,
     reader: anytype,
 ) !Config {
-    var parser = ini.parse(allocator, reader, ";#");
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    var parser = ini.parse(arena_allocator, reader, ";#");
     defer parser.deinit();
 
     var config = Config{
@@ -82,11 +86,11 @@ pub fn init(
         .gamepad = .{},
     };
 
-    var ini_maps = IniMaps.init(allocator);
+    var ini_maps = IniMaps.init(arena_allocator);
     defer ini_maps.deinit();
 
     inline for (std.meta.fieldNames(Config)) |name| {
-        const map = IniMap.init(allocator);
+        const map = IniMap.init(arena_allocator);
         try ini_maps.put(name, map);
     }
 
@@ -95,10 +99,7 @@ pub fn init(
     while (try parser.next()) |record| {
         switch (record) {
             .section => |heading| {
-                if (section) |sec| {
-                    allocator.free(sec);
-                }
-                section = try allocator.dupe(u8, heading);
+                section = try arena_allocator.dupe(u8, heading);
             },
             .property => |kv| {
                 if (section) |sec| {
@@ -106,15 +107,11 @@ pub fn init(
                         std.log.err("Unknown section: {s}", .{sec});
                         continue;
                     };
-                    try section_map.put(try allocator.dupe(u8, kv.key), try allocator.dupe(u8, kv.value));
+                    try section_map.put(try arena_allocator.dupe(u8, kv.key), try arena_allocator.dupe(u8, kv.value));
                 }
             },
             else => {},
         }
-    }
-
-    if (section) |sec| {
-        allocator.free(sec);
     }
 
     inline for (@typeInfo(Config).@"struct".fields) |field| {
@@ -142,26 +139,20 @@ fn iterateFields(comptime T: type, allocator: std.mem.Allocator, config_ptr: *T,
                 inline for (struct_info.fields) |field| {
                     if (map.getPtr(field.name)) |value_ptr| {
                         const value = value_ptr.*;
-                        const key_ptr = map.getKeyPtr(field.name).?;
-                        allocator.free(key_ptr.*);
                         if (field.type == bool) {
                             if (std.mem.eql(u8, value, "true")) {
                                 @field(config_ptr, field.name) = true;
                             } else if (std.mem.eql(u8, value, "false")) {
                                 @field(config_ptr, field.name) = false;
                             }
-                            allocator.free(value_ptr.*);
                         } else if (field.type == u16) {
                             @field(config_ptr, field.name) = try std.fmt.parseInt(u16, value, 10);
-                            allocator.free(value_ptr.*);
                         } else if (field.type == u32) {
                             @field(config_ptr, field.name) = try std.fmt.parseInt(u32, value, 10);
-                            allocator.free(value_ptr.*);
                         } else if (field.type == i32) {
                             @field(config_ptr, field.name) = try std.fmt.parseInt(i32, value, 10);
-                            allocator.free(value_ptr.*);
                         } else if (field.type == []const u8) {
-                            @field(config_ptr, field.name) = value;
+                            @field(config_ptr, field.name) = try allocator.dupe(u8, value);
                         }
                     }
                 }

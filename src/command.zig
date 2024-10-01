@@ -7,18 +7,18 @@ const Command = @This();
 pub const M8Model = enum { V1, V2 };
 
 pub const CommandTag = enum(u8) {
-    rectangle = 0xFE,
-    character = 0xFD,
-    oscilloscope = 0xFC,
-    joypad = 0xFB,
-    system = 0xFF,
+    joypad = 0xFB, //251
+    oscilloscope = 0xFC, //252
+    character = 0xFD, //253
+    rectangle = 0xFE, //254
+    system = 0xFF, //255
 };
 
 pub const CommandData = union(CommandTag) {
-    rectangle: struct {
-        position: Position,
-        size: Size,
+    joypad: struct {},
+    oscilloscope: struct {
         color: Color,
+        waveform: []const u8,
     },
     character: struct {
         character: u8,
@@ -26,11 +26,11 @@ pub const CommandData = union(CommandTag) {
         foreground: Color,
         background: Color,
     },
-    oscilloscope: struct {
+    rectangle: struct {
+        position: Position,
+        size: Size,
         color: Color,
-        waveform: []const u8,
     },
-    joypad: struct {},
     system: struct {
         hardware: HardwareType,
         version: Version,
@@ -192,7 +192,6 @@ fn rectangleColor(data: []const u8) Color {
 }
 
 pub fn parseCommand(buffer: []const u8) !Command {
-    std.log.debug("YO {}", .{buffer[0]});
     const commandTag: CommandTag = @enumFromInt(buffer[0]);
     return Command.init(commandTag, buffer);
 }
