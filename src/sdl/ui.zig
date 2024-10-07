@@ -8,20 +8,18 @@ const texture_width = 320;
 const texture_height = 240;
 
 var dirty: bool = true;
-var background_color: SDL.Color = SDL.Color.black;
 
 const UI = @This();
 
-allocator: std.mem.Allocator,
 window: SDL.Window,
 renderer: SDL.Renderer,
 main_texture: SDL.Texture,
 full_screen: bool,
 font: SDLFont,
+background_color: SDL.Color = .black,
 
-pub fn init(allocator: std.mem.Allocator, full_screen: bool, use_gpu: bool) !UI {
+pub fn init(full_screen: bool, use_gpu: bool) !UI {
     std.log.debug("Initialising SDL UI", .{});
-    try SDL.init(SDL.InitFlags.everything);
 
     const window = try SDL.createWindow(
         "zm8",
@@ -52,13 +50,12 @@ pub fn init(allocator: std.mem.Allocator, full_screen: bool, use_gpu: bool) !UI 
 
     try renderer.setTarget(main_texture);
 
-    try renderer.setColor(background_color);
+    try renderer.setColor(.black);
     try renderer.clear();
 
     dirty = true;
 
     return .{
-        .allocator = allocator,
         .window = window,
         .renderer = renderer,
         .main_texture = main_texture,
@@ -71,6 +68,10 @@ pub fn toggleFullScreen(self: *UI) !void {
     self.full_screen = !self.full_screen;
     try self.window.setFullscreen(if (self.full_screen) .fullscreen else .default);
     _ = try SDL.showCursor(true);
+}
+
+pub fn setFont(self: *UI, v2: bool, large: bool) !void {
+    self.font = try SDLFont.init(self.renderer, v2, large);
 }
 
 pub fn drawCharacter(
@@ -101,11 +102,16 @@ pub fn drawRectangle(
 
     if (rectangle.x == 0 and rectangle.y <= 0 and rectangle.width == texture_width and rectangle.height >= texture_height) {
         std.log.debug("Setting background color", .{});
-        background_color = color;
+        self.setBackground(color);
     }
 
     try self.renderer.setColor(color);
     try self.renderer.fillRect(rectangle);
+    dirty = true;
+}
+
+fn setBackground(self: *UI, color: SDL.Color) void {
+    self.background_color = color;
     dirty = true;
 }
 
@@ -132,12 +138,12 @@ pub fn drawOscilloscope(
                 .width = @intCast(previous_waveform_len),
                 .height = self.font.inline_font.waveform_max_height + 1,
             };
-        try self.renderer.setColor(background_color);
+
+        try self.renderer.setColor(self.background_color);
         try self.renderer.fillRect(waveform_rectangle);
         try self.renderer.setColor(color);
 
-        var waveform_points = try self.allocator.alloc(SDL.Point, waveform.len);
-        defer self.allocator.free(waveform_points);
+        var waveform_points: [480]SDL.Point = undefined;
 
         for (0..waveform.len) |i| {
             waveform_points[i] = SDL.Point{
@@ -149,7 +155,7 @@ pub fn drawOscilloscope(
             };
         }
 
-        try self.renderer.drawPoints(waveform_points);
+        try self.renderer.drawPoints(waveform_points[0..waveform.len]);
 
         waveform_clear = waveform.len == 0;
 
@@ -161,7 +167,7 @@ pub fn render(self: *UI) !void {
     if (dirty) {
         dirty = false;
         try self.renderer.setTarget(null);
-        try self.renderer.setColor(background_color);
+        try self.renderer.setColor(self.background_color);
         try self.renderer.clear();
         try self.renderer.copy(self.main_texture, null, null);
         self.renderer.present();
@@ -170,10 +176,65 @@ pub fn render(self: *UI) !void {
 }
 
 pub fn deinit(self: UI) void {
-    std.log.debug("Deinit SDL UI", .{});
+    std.log.debug("Deinit SDL UI, dirty={}", .{dirty});
     self.window.destroy();
     self.renderer.destroy();
     self.main_texture.destroy();
     self.font.deinit();
-    SDL.quit();
+}
+
+fn screenshot(self: UI) !void {
+    const texture_info = try self.main_texture.query();
+    const surface = try SDL.createRgbSurfaceWithFormat(@intCast(texture_info.width), @intCast(texture_info.height), texture_info.format);
+    defer surface.destroy();
+    try self.renderer.readPixels(null, @enumFromInt(surface.ptr.format.*.format), @ptrCast(surface.ptr.pixels), @intCast(surface.ptr.pitch));
+    std.fs.cwd().deleteFile("screenshot.bmp") catch {};
+    const result = SDL.c.SDL_SaveBMP(surface.ptr, "screenshot.bmp");
+    if (result != 0) {
+        const err = SDL.getError();
+        if (err) |sdl_error| {
+            std.log.err("Failed to save screenshot {s}", .{sdl_error});
+        }
+    }
+}
+
+test "draws characters" {
+    try SDL.init(.{ .video = true });
+    defer SDL.quit();
+
+    var ui = try UI.init(false, true);
+    try ui.setFont(false, false);
+    defer ui.deinit();
+    var location: SDL.Point = .{ .x = 0, .y = 0 };
+    try ui.drawCharacter('H', location, .red, .green);
+    location.x += ui.font.inline_font.glyph_x + 1;
+    try ui.drawCharacter('e', location, .red, .green);
+    location.x += ui.font.inline_font.glyph_x + 1;
+    try ui.drawCharacter('l', location, .red, .green);
+    location.x += ui.font.inline_font.glyph_x + 1;
+    try ui.drawCharacter('l', location, .red, .green);
+    location.x += ui.font.inline_font.glyph_x + 1;
+    try ui.drawCharacter('o', location, .red, .green);
+    try ui.render();
+}
+
+test "draws rectangles" {
+    try SDL.init(.{ .video = true });
+    defer SDL.quit();
+    var ui = try UI.init(false, true);
+    defer ui.deinit();
+    try ui.drawRectangle(.{ .x = 100, .y = 100 }, 100, 100, .red);
+    try ui.render();
+}
+
+test "draws oscilloscope" {
+    try SDL.init(.{ .video = true });
+    defer SDL.quit();
+    var ui = try UI.init(false, true);
+    defer ui.deinit();
+    try ui.drawOscilloscope(
+        &[_]u8{ 10, 10, 11, 11, 12, 13, 14, 15, 16, 16, 13, 13, 12, 12, 10, 9, 8, 7, 7, 7, 8, 9, 11, 14, 17, 19, 20, 20, 18, 15, 13, 12, 11, 10, 9, 10, 11, 13, 14, 14, 14, 13, 11, 9, 8, 7, 8, 9, 10, 12, 15, 17, 19, 19, 19, 18, 16, 14, 13, 12, 11, 10, 10, 10, 11, 11, 11, 10, 9, 8, 8, 9, 10, 12, 14, 16, 18, 20, 20, 19, 18, 16, 13, 11, 10, 9, 9, 9, 9, 10, 11, 12, 13, 13, 12, 10, 9, 9, 9, 10, 12, 13, 15, 17, 19, 20, 20, 19, 17, 15, 13, 11, 10, 8, 7, 6, 7, 8, 9, 10, 11, 12, 12, 13, 14, 15, 16, 16, 16, 16, 16, 16, 16, 16, 14, 13, 11, 10, 9, 9, 8, 8, 9, 10, 11, 12, 12, 13, 13, 13, 13, 13, 14, 14, 14, 15, 16, 17, 18, 18, 17, 15, 13, 10, 8, 6, 5, 5, 5, 6, 8, 11, 13, 15, 17, 18, 18, 17, 16, 15, 14, 13, 12, 13, 14, 14, 14, 13, 13, 11, 10, 8, 8, 7, 7, 7, 9, 11, 13, 15, 16, 17, 17, 16, 15, 15, 14, 14, 14, 14, 15, 15, 15, 14, 12, 10, 8, 6, 5, 5, 5, 6, 9, 12, 15, 17, 20, 21, 20, 18, 16, 14, 12, 11, 11, 10, 11, 12, 13, 13, 13, 12, 11, 9, 8, 8, 8, 8, 9, 10, 13, 16, 18, 19, 19, 17, 16, 15, 14, 14, 13, 12, 11, 11, 11, 11, 10, 10, 9, 7, 7, 7, 8, 9, 11, 13, 16, 18, 19, 20, 19, 18, 16, 14, 12, 11, 10, 9, 9, 9, 10, 11, 12, 12, 12, 11, 10, 10, 9, 10, 11, 12, 13, 15, 17, 18, 19, 19, 18, 17, 16, 14, 12, 10, 9, 7, 7, 8, 8, 9 },
+        .red,
+    );
+    try ui.render();
 }

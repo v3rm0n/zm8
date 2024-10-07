@@ -63,15 +63,27 @@ const Gamepad = struct {
     gamepad_analog_axis_edit: i32 = -1,
 };
 
+allocator: std.mem.Allocator,
 graphics: Graphics,
 audio: Audio,
 keyboard: Keyboard,
 gamepad: Gamepad,
 
+pub fn default(allocator: std.mem.Allocator) Config {
+    return Config{
+        .allocator = allocator,
+        .graphics = Graphics{},
+        .audio = Audio{},
+        .keyboard = Keyboard{},
+        .gamepad = Gamepad{},
+    };
+}
+
 pub fn init(
     allocator: std.mem.Allocator,
     reader: anytype,
 ) !Config {
+    std.log.debug("Initialising config", .{});
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_allocator = arena.allocator();
@@ -80,6 +92,7 @@ pub fn init(
     defer parser.deinit();
 
     var config = Config{
+        .allocator = allocator,
         .graphics = .{},
         .audio = .{},
         .keyboard = .{},
@@ -96,6 +109,7 @@ pub fn init(
 
     var section: ?[]const u8 = null;
 
+    std.log.debug("Starting config parsing", .{});
     while (try parser.next()) |record| {
         switch (record) {
             .section => |heading| {
@@ -114,6 +128,8 @@ pub fn init(
         }
     }
 
+    std.log.debug("Config parsed", .{});
+
     inline for (@typeInfo(Config).@"struct".fields) |field| {
         try iterateFields(field.type, allocator, &@field(&config, field.name), ini_maps.getPtr(field.name));
     }
@@ -124,11 +140,12 @@ pub fn init(
         ini_map.deinit();
     }
 
+    std.log.debug("Config initialised", .{});
     return config;
 }
 
-pub fn deinit(self: Config, allocator: std.mem.Allocator) void {
-    self.audio.deinit(allocator);
+pub fn deinit(self: Config) void {
+    self.audio.deinit(self.allocator);
 }
 
 fn iterateFields(comptime T: type, allocator: std.mem.Allocator, config_ptr: *T, ini_map: ?*IniMap) !void {
@@ -179,7 +196,7 @@ test "parses ini" {
     ;
     const reader = @constCast(&std.io.fixedBufferStream(ini_content)).reader();
     const config = try Config.init(std.testing.allocator, reader);
-    defer config.deinit(std.testing.allocator);
+    defer config.deinit();
 
     try std.testing.expect(config.graphics.fullscreen);
     try std.testing.expect(!config.graphics.use_gpu);
@@ -191,7 +208,7 @@ test "parses ini from file" {
     defer config_file.close();
 
     const config = try Config.init(std.testing.allocator, config_file.reader());
-    defer config.deinit(std.testing.allocator);
+    defer config.deinit();
 
     try std.testing.expect(!config.graphics.fullscreen);
     try std.testing.expect(config.graphics.use_gpu);

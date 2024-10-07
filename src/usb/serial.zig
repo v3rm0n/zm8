@@ -80,7 +80,7 @@ pub fn init(comptime T: type) type {
 
         fn readCallback(transfer: *Transfer) void {
             const user_data = transfer.user_data.?;
-            if (transfer.transferStatus() != zusb.TransferStatus.Completed) {
+            if (transfer.transferStatus() != zusb.TransferStatus.Completed and transfer.transferStatus() != zusb.TransferStatus.Timeout) {
                 defer transfer.deinit();
                 defer transfer.allocator.destroy(user_data);
                 return;
@@ -117,9 +117,10 @@ pub fn init(comptime T: type) type {
         pub fn deinit(self: *UsbSerial) void {
             std.log.debug("Deiniting Serial", .{});
             while (pending_transfers_count > 0) {
-                std.log.debug("PENDING {}", .{pending_transfers_count});
+                std.log.debug("Pending transfer count {}", .{pending_transfers_count});
                 self.device_handle.ctx.handleEvents() catch |err| std.log.err("Could not handle events: {}", .{err});
             }
+            std.log.debug("Releasing interfaces", .{});
             self.device_handle.releaseInterface(1) catch |err| std.log.err("Could not release interface: {}", .{err});
             self.device_handle.releaseInterface(0) catch |err| std.log.err("Could not release interface: {}", .{err});
         }

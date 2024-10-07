@@ -49,6 +49,8 @@ pub fn build(b: *std.Build) void {
     });
 
     exe_unit_tests.root_module.addImport("ini", ini.module("ini"));
+    sdk.link(exe_unit_tests, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
+    exe_unit_tests.root_module.addImport("sdl2", sdk.getWrapperModule());
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

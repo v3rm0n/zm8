@@ -12,28 +12,22 @@ const slip_error = error{ BufferOverflow, UnknownEscapedByte };
 
 const SlipState = enum { normal, escaped };
 
-const SlipPackages = struct {
+const SlipPackagesIterator = struct {
+    allocator: std.mem.Allocator,
     packages: []const []const u8,
+    index: usize = 0,
 
-    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+    pub fn deinit(self: SlipPackagesIterator) void {
         for (self.packages) |pkg| {
-            allocator.free(pkg);
+            self.allocator.free(pkg);
         }
-        allocator.free(self.packages);
+        self.allocator.free(self.packages);
     }
 
-    pub fn size(self: @This()) usize {
+    pub fn size(self: SlipPackagesIterator) usize {
         return self.packages.len;
     }
 
-    pub fn iterator(self: @This()) SlipPackagesIterator {
-        return .{ .packages = self.packages };
-    }
-};
-
-const SlipPackagesIterator = struct {
-    packages: []const []const u8,
-    index: usize = 0,
     pub fn next(self: *SlipPackagesIterator) ?[]const u8 {
         const index = self.index;
         for (self.packages[index..]) |pkg| {
@@ -62,7 +56,7 @@ pub fn Slip(
             };
         }
 
-        pub fn readAll(self: *Self, allocator: std.mem.Allocator, bytes: []const u8) !SlipPackages {
+        pub fn readAll(self: *Self, allocator: std.mem.Allocator, bytes: []const u8) !SlipPackagesIterator {
             var list = std.ArrayList([]u8).init(allocator);
             defer list.deinit();
 
@@ -75,7 +69,7 @@ pub fn Slip(
                 }
             }
 
-            return .{ .packages = try list.toOwnedSlice() };
+            return .{ .allocator = allocator, .packages = try list.toOwnedSlice() };
         }
 
         fn read(self: *Self, byte: SlipByte) slip_error!?[]u8 {
@@ -121,10 +115,9 @@ pub fn Slip(
 fn testSlip(input: []const u8, expected: []const u8) !void {
     const TestSlip = Slip(1024);
     var slip = try TestSlip.init();
-    const packages = try slip.readAll(std.testing.allocator, input);
-    defer packages.deinit(std.testing.allocator);
-    var iterator = packages.iterator();
-    while (iterator.next()) |pkg| {
+    var packages = try slip.readAll(std.testing.allocator, input);
+    defer packages.deinit();
+    while (packages.next()) |pkg| {
         try std.testing.expect(pkg.len == expected.len);
         try std.testing.expect(std.mem.eql(u8, pkg, expected));
     }

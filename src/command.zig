@@ -34,6 +34,7 @@ pub const CommandData = union(CommandTag) {
     system: struct {
         hardware: HardwareType,
         version: Version,
+        fontMode: FontMode,
     },
 };
 
@@ -85,15 +86,27 @@ pub const HardwareType = enum(u8) {
     ProductionM8Model2,
 };
 
+pub const FontMode = enum(u8) {
+    small = 0,
+    large = 1,
+};
+
+allocator: std.mem.Allocator,
 data: CommandData,
 
-fn init(tag: CommandTag, data: []const u8) !Command {
+pub fn parseCommand(allocator: std.mem.Allocator, buffer: []const u8) !Command {
+    const commandTag: CommandTag = @enumFromInt(buffer[0]);
+    return Command.init(allocator, commandTag, buffer);
+}
+
+fn init(allocator: std.mem.Allocator, tag: CommandTag, data: []const u8) !Command {
     const limits = getCommandLimits(tag);
     if (data.len < limits.min or data.len > limits.max) {
         return error.OutOfRange;
     }
     return switch (tag) {
         .rectangle => .{
+            .allocator = allocator,
             .data = .{
                 .rectangle = .{
                     .position = .{
@@ -106,6 +119,7 @@ fn init(tag: CommandTag, data: []const u8) !Command {
             },
         },
         .character => .{
+            .allocator = allocator,
             .data = .{
                 .character = .{
                     .character = data[1],
@@ -127,6 +141,7 @@ fn init(tag: CommandTag, data: []const u8) !Command {
             },
         },
         .oscilloscope => .{
+            .allocator = allocator,
             .data = .{
                 .oscilloscope = .{
                     .color = .{
@@ -134,28 +149,38 @@ fn init(tag: CommandTag, data: []const u8) !Command {
                         .g = data[2],
                         .b = data[3],
                     },
-                    .waveform = data[4..],
+                    .waveform = try allocator.dupe(u8, data[4..]),
                 },
             },
         },
         .joypad => .{
+            .allocator = allocator,
             .data = .{
                 .joypad = .{},
             },
         },
         .system => .{
+            .allocator = allocator,
             .data = .{
                 .system = .{
                     .hardware = @enumFromInt(data[1]),
                     .version = .{
-                        .minor = data[2],
-                        .major = data[3],
+                        .major = data[2],
+                        .minor = data[3],
                         .patch = data[4],
                     },
+                    .fontMode = @enumFromInt(data[5]),
                 },
             },
         },
     };
+}
+
+pub fn deinit(self: Command) void {
+    switch (self.data) {
+        .oscilloscope => self.allocator.free(self.data.oscilloscope.waveform),
+        else => return,
+    }
 }
 
 fn rectangleSize(data: []const u8) Size {
@@ -189,11 +214,6 @@ fn rectangleColor(data: []const u8) Color {
             .b = data[11],
         },
     };
-}
-
-pub fn parseCommand(buffer: []const u8) !Command {
-    const commandTag: CommandTag = @enumFromInt(buffer[0]);
-    return Command.init(commandTag, buffer);
 }
 
 fn decodeU16(data: []const u8, start: usize) u16 {

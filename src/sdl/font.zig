@@ -8,8 +8,6 @@ const characters_per_column = 1;
 
 const font_offset: u16 = 127 - characters_per_row * characters_per_column;
 
-var foreground_color: ?SDL.Color = null;
-
 pub const InlineFont = struct {
     width: u16,
     height: u16,
@@ -26,6 +24,7 @@ const fonts = [_]InlineFont{ font_v1_small, font_v1_large, font_v2_small, font_v
 
 inline_font: InlineFont,
 texture: SDL.Texture,
+foreground_color: ?SDL.Color = null,
 
 pub fn init(renderer: SDL.Renderer, v2: bool, large: bool) !SDLFont {
     std.log.info("Initialising SDL Font. v2={}, large={}", .{ v2, large });
@@ -34,7 +33,7 @@ pub fn init(renderer: SDL.Renderer, v2: bool, large: bool) !SDLFont {
     const surface = try SDL.loadBmpFromConstMem(selected_font.image_data);
     defer surface.destroy();
 
-    try surface.setColorKey(true, SDL.Color.black);
+    try surface.setColorKey(true, .black);
 
     const texture = try SDL.createTextureFromSurface(renderer, surface);
 
@@ -50,7 +49,7 @@ pub fn deinit(self: SDLFont) void {
 }
 
 pub fn draw(
-    self: SDLFont,
+    self: *SDLFont,
     renderer: SDL.Renderer,
     character: u8,
     position: SDL.Point,
@@ -75,9 +74,9 @@ pub fn draw(
         .height = src_rect.height,
     };
 
-    if (foreground_color == null or !std.meta.eql(foreground, foreground_color.?)) {
+    if (self.foreground_color == null or !std.meta.eql(foreground, self.foreground_color.?)) {
         try self.texture.setColorMod(foreground);
-        foreground_color = foreground;
+        self.foreground_color = foreground;
     }
 
     if (!std.meta.eql(foreground, background)) {

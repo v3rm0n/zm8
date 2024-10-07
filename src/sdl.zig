@@ -3,7 +3,10 @@ const UI = @import("sdl/ui.zig");
 const Command = @import("command.zig");
 const SDL = @import("sdl2");
 const M8 = @import("m8.zig");
-const CommandHandler = @import("command_handler.zig");
+const Config = @import("config.zig");
+const SDLUI = @import("sdl/ui.zig");
+const SDLAudio = @import("sdl/audio.zig");
+const zusb = @import("zusb");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -11,16 +14,56 @@ const SDLHandler = @This();
 
 ui: *UI,
 
-pub fn handler(self: *SDLHandler) CommandHandler {
-    return .{
-        .ptr = self,
-        .startFn = start,
-        .handleCommandFn = handleCommand,
+pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
+    std.log.debug("Starting with SDL UI", .{});
+    const config = readConfig(allocator) catch |err| blk: {
+        std.log.err("Failed to read config file: {}\n", .{err});
+        break :blk Config.default(allocator);
     };
+    defer config.deinit();
+
+    try SDL.init(SDL.InitFlags.everything);
+    defer SDL.quit();
+
+    var ui = try SDLUI.init(config.graphics.fullscreen, config.graphics.use_gpu);
+    defer ui.deinit();
+
+    var audio_device: ?SDLAudio = null;
+    if (config.audio.audio_enabled) {
+        audio_device = try SDLAudio.init(allocator, config.audio.audio_buffer_size, config.audio.audio_device_name);
+    }
+    defer if (audio_device) |*dev| dev.deinit();
+    const audio_buffer = if (audio_device) |dev| dev.audio_buffer else null;
+
+    var usb_context = try zusb.Context.init();
+    defer usb_context.deinit();
+
+    var m8 = try M8.init(
+        allocator,
+        audio_buffer,
+        preferred_usb_device,
+        &usb_context,
+    );
+
+    defer m8.deinit();
+
+    const m8_start = try m8.start();
+    defer m8_start.deinit();
+
+    std.log.debug("Enable display", .{});
+    try m8.enableAndResetDisplay();
+
+    try startMainLoop(&ui, &m8, config.graphics.idle_ms);
 }
 
-fn start(ptr: *anyopaque, m8: *M8) !void {
-    const self: *SDLHandler = @ptrCast(@alignCast(ptr));
+fn readConfig(allocator: std.mem.Allocator) !Config {
+    const config_file = try std.fs.cwd().openFile("config.ini", .{});
+    defer config_file.close();
+
+    return try Config.init(allocator, config_file.reader());
+}
+
+fn startMainLoop(ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
     std.log.info("Starting main loop", .{});
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {
@@ -34,7 +77,7 @@ fn start(ptr: *anyopaque, m8: *M8) !void {
                         .r => try m8.resetDisplay(),
                         .@"return" => {
                             if (key_ev.modifiers.get(SDL.KeyModifierBit.left_alt)) {
-                                try self.ui.toggleFullScreen();
+                                try ui.toggleFullScreen();
                             }
                         },
                         else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.down),
@@ -49,14 +92,18 @@ fn start(ptr: *anyopaque, m8: *M8) !void {
             }
         }
 
-        try m8.handleEvents();
-        try self.ui.render();
+        while (try m8.popCommand()) |command| {
+            defer command.deinit();
+            try handleCommand(ui, command);
+        }
+
+        try ui.render();
+        SDL.delay(idle_ms);
     }
     std.log.debug("End of main loop", .{});
 }
 
-fn handleCommand(ptr: *anyopaque, command: Command) !void {
-    const self: *SDLHandler = @ptrCast(@alignCast(ptr));
+fn handleCommand(ui: *SDLUI, command: *Command) !void {
     switch (command.data) {
         .system => |cmd| {
             try stdout.print("** Hardware info ** Device type: {}, Firmware ver {}.{}.{}\n", .{
@@ -65,9 +112,11 @@ fn handleCommand(ptr: *anyopaque, command: Command) !void {
                 cmd.version.minor,
                 cmd.version.patch,
             });
+            try ui.setFont(cmd.hardware == .ProductionM8Model2, cmd.fontMode == .large);
+            //TODO: support V2 screen
         },
         .rectangle => |cmd| {
-            try self.ui.drawRectangle(
+            try ui.drawRectangle(
                 .{ .x = cmd.position.x, .y = cmd.position.y },
                 cmd.size.width,
                 cmd.size.height,
@@ -75,7 +124,7 @@ fn handleCommand(ptr: *anyopaque, command: Command) !void {
             );
         },
         .character => |cmd| {
-            try self.ui.drawCharacter(
+            try ui.drawCharacter(
                 cmd.character,
                 .{ .x = cmd.position.x, .y = cmd.position.y },
                 .{ .r = cmd.foreground.r, .g = cmd.foreground.g, .b = cmd.foreground.b },
@@ -86,7 +135,7 @@ fn handleCommand(ptr: *anyopaque, command: Command) !void {
             std.log.debug("Joypad command", .{});
         },
         .oscilloscope => |cmd| {
-            try self.ui.drawOscilloscope(cmd.waveform, .{ .r = cmd.color.r, .g = cmd.color.g, .b = cmd.color.b });
+            try ui.drawOscilloscope(cmd.waveform, .{ .r = cmd.color.r, .g = cmd.color.g, .b = cmd.color.b });
         },
     }
 }
