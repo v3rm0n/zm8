@@ -12,6 +12,18 @@ pub const CommandTag = enum(u8) {
     character = 0xFD, //253
     rectangle = 0xFE, //254
     system = 0xFF, //255
+
+    const CommandLimits = struct { min: usize, max: usize };
+
+    fn getCommandLimits(cmd: CommandTag) CommandLimits {
+        return switch (cmd) {
+            .rectangle => .{ .min = 5, .max = 12 },
+            .character => .{ .min = 12, .max = 12 },
+            .oscilloscope => .{ .min = 1 + 3, .max = 1 + 3 + 480 },
+            .joypad => .{ .min = 3, .max = 3 },
+            .system => .{ .min = 6, .max = 6 },
+        };
+    }
 };
 
 pub const CommandData = union(CommandTag) {
@@ -37,18 +49,6 @@ pub const CommandData = union(CommandTag) {
         fontMode: FontMode,
     },
 };
-
-const CommandLimits = struct { min: usize, max: usize };
-
-fn getCommandLimits(cmd: CommandTag) CommandLimits {
-    return switch (cmd) {
-        .rectangle => .{ .min = 5, .max = 12 },
-        .character => .{ .min = 12, .max = 12 },
-        .oscilloscope => .{ .min = 1 + 3, .max = 1 + 3 + 480 },
-        .joypad => .{ .min = 3, .max = 3 },
-        .system => .{ .min = 6, .max = 6 },
-    };
-}
 
 pub const Color = struct {
     r: u8,
@@ -94,17 +94,18 @@ pub const FontMode = enum(u8) {
 allocator: std.mem.Allocator,
 data: CommandData,
 
-pub fn parseCommand(allocator: std.mem.Allocator, buffer: []const u8) !Command {
+pub fn parseCommand(allocator: std.mem.Allocator, buffer: []const u8) !*Command {
     const commandTag: CommandTag = @enumFromInt(buffer[0]);
     return Command.init(allocator, commandTag, buffer);
 }
 
-fn init(allocator: std.mem.Allocator, tag: CommandTag, data: []const u8) !Command {
-    const limits = getCommandLimits(tag);
+fn init(allocator: std.mem.Allocator, tag: CommandTag, data: []const u8) !*Command {
+    const limits = tag.getCommandLimits();
     if (data.len < limits.min or data.len > limits.max) {
         return error.OutOfRange;
     }
-    return switch (tag) {
+    const command = try allocator.create(Command);
+    command.* = switch (tag) {
         .rectangle => .{
             .allocator = allocator,
             .data = .{
@@ -174,9 +175,11 @@ fn init(allocator: std.mem.Allocator, tag: CommandTag, data: []const u8) !Comman
             },
         },
     };
+    return command;
 }
 
-pub fn deinit(self: Command) void {
+pub fn deinit(self: *Command) void {
+    defer self.allocator.destroy(self);
     switch (self.data) {
         .oscilloscope => self.allocator.free(self.data.oscilloscope.waveform),
         else => return,
@@ -196,13 +199,11 @@ fn rectangleSize(data: []const u8) Size {
     };
 }
 
+var current_color: Color = .{ .r = 0, .g = 0, .b = 0 };
+
 fn rectangleColor(data: []const u8) Color {
-    return switch (data.len) {
-        5, 9 => .{
-            .r = 0,
-            .g = 0,
-            .b = 0,
-        },
+    const new_color: Color = switch (data.len) {
+        5, 9 => current_color,
         8 => .{
             .r = data[5],
             .g = data[6],
@@ -214,6 +215,8 @@ fn rectangleColor(data: []const u8) Color {
             .b = data[11],
         },
     };
+    current_color = new_color;
+    return new_color;
 }
 
 fn decodeU16(data: []const u8, start: usize) u16 {

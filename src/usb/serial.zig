@@ -22,7 +22,47 @@ pub fn init(comptime T: type) type {
         pub const UsbSerialTransfer = struct {
             transfer: *Transfer,
 
+            pub fn init(
+                usb_serial: *UsbSerial,
+                buffer_size: usize,
+                user_data: *T,
+                callback: *const fn (self: *T, buffer: []const u8) void,
+            ) !UsbSerialTransfer {
+                const user_data_data = try usb_serial.allocator.create(UserData);
+                user_data_data.* = .{ .serial = usb_serial, .user_data = user_data, .callback = callback };
+                var transfer = try Transfer.fillBulk(
+                    usb_serial.allocator,
+                    usb_serial.device_handle,
+                    serial_endpoint_in,
+                    buffer_size,
+                    readCallback,
+                    user_data_data,
+                    50,
+                    .{},
+                );
+                try transfer.submit();
+                return .{ .transfer = transfer };
+            }
+
+            fn readCallback(transfer: *Transfer) void {
+                if (transfer.transferStatus() != zusb.TransferStatus.Completed and transfer.transferStatus() != zusb.TransferStatus.Timeout) {
+                    return;
+                }
+                const user_data = transfer.user_data.?;
+                user_data.callback(user_data.user_data, transfer.getData());
+                transfer.submit() catch |e| std.log.err("Failed to resubmit bulk/interrupt transfer: {}", .{e});
+            }
+
             pub fn deinit(self: @This()) void {
+                if (self.transfer.active) {
+                    self.transfer.cancel() catch |e| std.log.err("Failed to cancel transfer: {}", .{e});
+                }
+                while (self.transfer.active) {
+                    std.log.debug("Waiting for pending serial transfer", .{});
+                    std.Thread.sleep(10 * 1000);
+                }
+                std.log.debug("Deiniting USB serial transfer", .{});
+                self.transfer.allocator.destroy(self.transfer.user_data.?);
                 self.transfer.deinit();
             }
         };
@@ -62,32 +102,7 @@ pub fn init(comptime T: type) type {
             user_data: *T,
             callback: *const fn (self: *T, buffer: []const u8) void,
         ) zusb.Error!UsbSerialTransfer {
-            const user_data_data = try self.allocator.create(UserData);
-            user_data_data.* = UserData{ .serial = self, .user_data = user_data, .callback = callback };
-            var transfer = try Transfer.fillBulk(
-                self.allocator,
-                self.device_handle,
-                serial_endpoint_in,
-                buffer_size,
-                readCallback,
-                user_data_data,
-                50,
-                .{},
-            );
-            try transfer.submit();
-            return .{ .transfer = transfer };
-        }
-
-        fn readCallback(transfer: *Transfer) void {
-            const user_data = transfer.user_data.?;
-            if (transfer.transferStatus() != zusb.TransferStatus.Completed and transfer.transferStatus() != zusb.TransferStatus.Timeout) {
-                defer transfer.deinit();
-                defer transfer.allocator.destroy(user_data);
-                return;
-            }
-
-            user_data.callback(user_data.user_data, transfer.getData());
-            transfer.submit() catch |e| std.log.err("Failed to resubmit bulk/interrupt transfer: {}", .{e});
+            return try UsbSerialTransfer.init(self, buffer_size, user_data, callback);
         }
 
         pub fn write(
@@ -120,7 +135,7 @@ pub fn init(comptime T: type) type {
                 std.log.debug("Pending transfer count {}", .{pending_transfers_count});
                 self.device_handle.ctx.handleEvents() catch |err| std.log.err("Could not handle events: {}", .{err});
             }
-            std.log.debug("Releasing interfaces", .{});
+            std.log.debug("Releasing interfaces {} and {}", .{ 1, 0 });
             self.device_handle.releaseInterface(1) catch |err| std.log.err("Could not release interface: {}", .{err});
             self.device_handle.releaseInterface(0) catch |err| std.log.err("Could not release interface: {}", .{err});
         }

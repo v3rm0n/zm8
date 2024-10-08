@@ -69,7 +69,10 @@ pub fn Slip(
                 }
             }
 
-            return .{ .allocator = allocator, .packages = try list.toOwnedSlice() };
+            return .{
+                .allocator = allocator,
+                .packages = try list.toOwnedSlice(),
+            };
         }
 
         fn read(self: *Self, byte: SlipByte) slip_error!?[]u8 {

@@ -44,7 +44,6 @@ pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
         preferred_usb_device,
         &usb_context,
     );
-
     defer m8.deinit();
 
     const m8_start = try m8.start();
@@ -74,18 +73,23 @@ fn startMainLoop(ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
                         break;
                     }
                     switch (key_ev.keycode) {
+                        .f4 => {
+                            if (key_ev.modifiers.get(.left_alt)) {
+                                break :mainLoop;
+                            }
+                        },
                         .r => try m8.resetDisplay(),
                         .@"return" => {
-                            if (key_ev.modifiers.get(SDL.KeyModifierBit.left_alt)) {
+                            if (key_ev.modifiers.get(.left_alt)) {
                                 try ui.toggleFullScreen();
                             }
                         },
-                        else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.down),
+                        else => try m8.handleKey(mapKey(key_ev.keycode), .down),
                     }
                 },
                 .key_up => |key_ev| {
                     switch (key_ev.keycode) {
-                        else => try m8.handleKey(mapKey(key_ev.keycode), M8.KeyAction.up),
+                        else => try m8.handleKey(mapKey(key_ev.keycode), .up),
                     }
                 },
                 else => {},
@@ -112,8 +116,12 @@ fn handleCommand(ui: *SDLUI, command: *Command) !void {
                 cmd.version.minor,
                 cmd.version.patch,
             });
+            if (cmd.hardware == .ProductionM8Model2) {
+                try ui.adjustSize(480, 320);
+            } else {
+                try ui.adjustSize(320, 240);
+            }
             try ui.setFont(cmd.hardware == .ProductionM8Model2, cmd.fontMode == .large);
-            //TODO: support V2 screen
         },
         .rectangle => |cmd| {
             try ui.drawRectangle(
@@ -140,16 +148,17 @@ fn handleCommand(ui: *SDLUI, command: *Command) !void {
     }
 }
 
+//TODO: handle config.ini
 fn mapKey(key_code: SDL.Keycode) ?M8.Key {
     return switch (key_code) {
-        .up => M8.Key.up,
-        .down => M8.Key.down,
-        .left => M8.Key.left,
-        .right => M8.Key.right,
-        .z => M8.Key.option,
-        .x => M8.Key.edit,
-        .space => M8.Key.play,
-        .left_shift => M8.Key.shift,
+        .up => .up,
+        .down => .down,
+        .left => .left,
+        .right => .right,
+        .z => .option,
+        .x => .edit,
+        .space => .play,
+        .left_shift => .shift,
         else => null,
     };
 }

@@ -158,13 +158,15 @@ pub fn resetDisplay(self: *M8) zusb.Error!void {
 }
 
 pub fn enableAndResetDisplay(self: *M8) zusb.Error!void {
-    std.log.info("Resetting display", .{});
+    std.log.info("Enabling and resetting display", .{});
     const reset = [_]u8{'E'};
     try self.serial.write(&reset);
+    std.Thread.sleep(5 * 1000);
+    try self.resetDisplay();
 }
 
 pub fn disconnect(self: *M8) zusb.Error!void {
-    std.log.info("Resetting display", .{});
+    std.log.info("Disconnecting", .{});
     const reset = [_]u8{'D'};
     try self.serial.write(&reset);
 }
@@ -225,11 +227,15 @@ pub fn popCommand(self: *M8) !?*Command {
 
 pub fn deinit(self: *M8) void {
     std.log.debug("Deiniting M8", .{});
+    self.disconnect() catch |err| {
+        std.log.err("Failed to disconnect: {}", .{err});
+    };
     if (self.audio) |*audio| audio.deinit();
     self.serial.deinit();
     self.allocator.destroy(self.slip);
     self.device_handle.deinit();
     self.allocator.destroy(self.device_handle);
+    self.command_queue.deinit();
     self.allocator.destroy(self.command_queue);
     self.usb_thread.deinit();
 }

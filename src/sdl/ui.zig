@@ -4,8 +4,8 @@ const SDLFont = @import("font.zig");
 
 const stdout = std.io.getStdOut().writer();
 
-const texture_width = 320;
-const texture_height = 240;
+var texture_width: usize = 320;
+var texture_height: usize = 240;
 
 var dirty: bool = true;
 
@@ -16,7 +16,7 @@ renderer: SDL.Renderer,
 main_texture: SDL.Texture,
 full_screen: bool,
 font: SDLFont,
-background_color: SDL.Color = .black,
+background_color: SDL.Color,
 
 pub fn init(full_screen: bool, use_gpu: bool) !UI {
     std.log.debug("Initialising SDL UI", .{});
@@ -38,19 +38,21 @@ pub fn init(full_screen: bool, use_gpu: bool) !UI {
     const renderer_flags: SDL.RendererFlags = if (use_gpu) .{ .accelerated = true } else .{ .software = true };
 
     const renderer = try SDL.createRenderer(window, null, renderer_flags);
-    try renderer.setLogicalSize(texture_width, texture_height);
+    try renderer.setLogicalSize(@intCast(texture_width), @intCast(texture_height));
 
     const main_texture = try SDL.createTexture(
         renderer,
-        SDL.PixelFormatEnum.argb8888,
-        SDL.Texture.Access.target,
+        .argb8888,
+        .target,
         texture_width,
         texture_height,
     );
 
+    const background_color: SDL.Color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+
     try renderer.setTarget(main_texture);
 
-    try renderer.setColor(.black);
+    try renderer.setColor(background_color);
     try renderer.clear();
 
     dirty = true;
@@ -61,7 +63,31 @@ pub fn init(full_screen: bool, use_gpu: bool) !UI {
         .main_texture = main_texture,
         .full_screen = full_screen,
         .font = try SDLFont.init(renderer, false, false),
+        .background_color = background_color,
     };
+}
+
+pub fn adjustSize(self: *UI, width: usize, height: usize) !void {
+    texture_height = height;
+    texture_width = width;
+
+    const window_size = self.window.getSize();
+    if (window_size.height < texture_height * 2 or window_size.width < texture_width * 2) {
+        try self.window.setSize(.{ .width = @as(c_int, @intCast(texture_width * 2)), .height = @as(c_int, @intCast(texture_height * 2)) });
+    }
+    self.main_texture.destroy();
+    try self.renderer.setLogicalSize(@intCast(texture_width), @intCast(texture_height));
+    self.main_texture = try SDL.createTexture(
+        self.renderer,
+        .argb8888,
+        .target,
+        texture_width,
+        texture_height,
+    );
+    try self.renderer.setTarget(self.main_texture);
+    try self.renderer.setColor(self.background_color);
+    try self.renderer.clear();
+    dirty = true;
 }
 
 pub fn toggleFullScreen(self: *UI) !void {
@@ -71,6 +97,7 @@ pub fn toggleFullScreen(self: *UI) !void {
 }
 
 pub fn setFont(self: *UI, v2: bool, large: bool) !void {
+    self.font.deinit();
     self.font = try SDLFont.init(self.renderer, v2, large);
 }
 
@@ -88,20 +115,19 @@ pub fn drawCharacter(
 pub fn drawRectangle(
     self: *UI,
     position: SDL.Point,
-    width: u16,
-    height: u16,
+    width: c_int,
+    height: c_int,
     color: SDL.Color,
 ) !void {
-    const y = position.y + self.font.inline_font.screen_offset_y;
     const rectangle = SDL.Rectangle{
         .x = position.x,
-        .y = y,
+        .y = position.y + self.font.inline_font.screen_offset_y,
         .width = width,
         .height = height,
     };
 
     if (rectangle.x == 0 and rectangle.y <= 0 and rectangle.width == texture_width and rectangle.height >= texture_height) {
-        std.log.debug("Setting background color", .{});
+        std.log.debug("Setting background color to {}", .{color});
         self.setBackground(color);
     }
 
@@ -115,52 +141,44 @@ fn setBackground(self: *UI, color: SDL.Color) void {
     dirty = true;
 }
 
-var waveform_clear = false;
-var previous_waveform_len: usize = 0;
-
 pub fn drawOscilloscope(
     self: *UI,
     waveform: []const u8,
     color: SDL.Color,
 ) !void {
-    if (!(waveform_clear and waveform.len == 0)) {
-        const waveform_rectangle = if (waveform.len > 0)
-            SDL.Rectangle{
-                .x = texture_width - @as(i32, @intCast(waveform.len)),
-                .y = 0,
-                .width = @intCast(waveform.len),
-                .height = self.font.inline_font.waveform_max_height,
-            }
-        else
-            SDL.Rectangle{
-                .x = texture_width - @as(i32, @intCast(previous_waveform_len)),
-                .y = 0,
-                .width = @intCast(previous_waveform_len),
-                .height = self.font.inline_font.waveform_max_height + 1,
-            };
-
-        try self.renderer.setColor(self.background_color);
-        try self.renderer.fillRect(waveform_rectangle);
-        try self.renderer.setColor(color);
-
-        var waveform_points: [480]SDL.Point = undefined;
-
-        for (0..waveform.len) |i| {
-            waveform_points[i] = SDL.Point{
-                .x = @as(i32, @intCast(i)) + waveform_rectangle.x,
-                .y = @min(
-                    self.font.inline_font.waveform_max_height,
-                    waveform[i],
-                ),
-            };
+    const waveform_area = if (waveform.len > 0)
+        SDL.Rectangle{
+            .x = @as(i32, @intCast(texture_width - waveform.len)),
+            .y = 0,
+            .width = @intCast(waveform.len),
+            .height = self.font.inline_font.waveform_max_height,
         }
+    else
+        SDL.Rectangle{
+            .x = 0,
+            .y = 0,
+            .width = @intCast(texture_width),
+            .height = self.font.inline_font.waveform_max_height,
+        };
 
-        try self.renderer.drawPoints(waveform_points[0..waveform.len]);
+    try self.renderer.setColor(self.background_color);
+    try self.renderer.fillRect(waveform_area);
 
-        waveform_clear = waveform.len == 0;
-
-        dirty = true;
+    var waveform_points: [480]SDL.Point = undefined;
+    for (0..waveform.len) |i| {
+        waveform_points[i] = .{
+            .x = @as(i32, @intCast(i)) + waveform_area.x,
+            .y = @min(
+                self.font.inline_font.waveform_max_height,
+                waveform[i],
+            ),
+        };
     }
+
+    try self.renderer.setColor(color);
+    try self.renderer.drawPoints(waveform_points[0..waveform.len]);
+
+    dirty = true;
 }
 
 pub fn render(self: *UI) !void {

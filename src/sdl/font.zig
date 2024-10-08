@@ -24,7 +24,6 @@ const fonts = [_]InlineFont{ font_v1_small, font_v1_large, font_v2_small, font_v
 
 inline_font: InlineFont,
 texture: SDL.Texture,
-foreground_color: ?SDL.Color = null,
 
 pub fn init(renderer: SDL.Renderer, v2: bool, large: bool) !SDLFont {
     std.log.info("Initialising SDL Font. v2={}, large={}", .{ v2, large });
@@ -58,26 +57,24 @@ pub fn draw(
 ) !void {
     const y = position.y + self.inline_font.text_offset_y + self.inline_font.screen_offset_y;
     const id = @as(i32, character) - SDLFont.font_offset;
-    const src_width = self.inline_font.width / characters_per_row;
+    const width = self.inline_font.width / characters_per_row;
+    const height = self.inline_font.height / characters_per_column;
 
     const src_rect = SDL.Rectangle{
-        .x = id * src_width,
+        .x = id * width,
         .y = 0,
-        .width = src_width,
-        .height = self.inline_font.height / characters_per_column,
+        .width = width,
+        .height = height,
     };
 
     const dest_rect = SDL.Rectangle{
         .x = position.x,
         .y = y,
-        .width = src_rect.width,
-        .height = src_rect.height,
+        .width = width,
+        .height = height,
     };
 
-    if (self.foreground_color == null or !std.meta.eql(foreground, self.foreground_color.?)) {
-        try self.texture.setColorMod(foreground);
-        self.foreground_color = foreground;
-    }
+    try self.texture.setColorMod(foreground);
 
     if (!std.meta.eql(foreground, background)) {
         const bg_rect = SDL.Rectangle{
@@ -100,7 +97,7 @@ const font_v1_small = InlineFont{
     .screen_offset_x = 0,
     .screen_offset_y = 0,
     .text_offset_y = 3,
-    .waveform_max_height = 24,
+    .waveform_max_height = 25,
     .image_data = &[_]u8{
         0x42, 0x4D, 0x36, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x92, 0x00, 0x00, 0x00, 0x7C,
         0x00, 0x00, 0x00, 0xD6, 0x01, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,

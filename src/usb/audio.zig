@@ -81,26 +81,30 @@ fn transferCallback(transfer: *Transfer) void {
     transfer.submit() catch |e| std.log.err("Failed to resubmit bulk/interrupt transfer: {}", .{e});
 }
 
-fn hasPendingTransfers(self: *UsbAudio) bool {
-    for (0..number_of_transfers) |i| {
-        if (self.transfers.items[i].isActive()) {
-            return true;
+fn pendingTransfers(self: *UsbAudio) u8 {
+    var count: u8 = 0;
+    for (self.transfers.items) |transfer| {
+        if (transfer.isActive()) {
+            count += 1;
         }
     }
-    return false;
+    return count;
 }
 
 pub fn deinit(self: *UsbAudio) void {
     std.log.debug("Deiniting USB audio", .{});
-    for (0..number_of_transfers) |i| {
-        self.transfers.items[i].cancel() catch |err| std.log.err("Could not cancel transfer: {}", .{err});
+    for (self.transfers.items) |transfer| {
+        transfer.cancel() catch |err| std.log.err("Could not cancel transfer: {}", .{err});
     }
-    while (self.hasPendingTransfers()) {
-        self.usb_device.ctx.handleEvents() catch |err| std.log.err("Could not handle events: {}", .{err});
+    while (self.pendingTransfers() > 0) {
+        std.log.debug("Waiting for pending transfers: {}", .{self.pendingTransfers()});
+        std.Thread.sleep(100 * 1000);
     }
-    for (0..number_of_transfers) |i| {
-        self.transfers.items[i].deinit();
+    std.log.debug("Deiniting transfers", .{});
+    for (self.transfers.items) |transfer| {
+        transfer.deinit();
     }
+    std.log.debug("Releasing interface {}", .{audio_interface_out});
     self.usb_device.releaseInterface(audio_interface_out) catch |err| std.log.err("Could not release interface: {}", .{err});
     self.transfers.deinit();
 }

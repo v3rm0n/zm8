@@ -18,16 +18,11 @@ pub fn init(allocator: std.mem.Allocator) !CommandQueue {
     };
 }
 
-pub fn push(self: *CommandQueue, command: Command) !void {
+pub fn push(self: *CommandQueue, command: *Command) !void {
     const node = try self.allocator.create(CommandDoublyLinkedList.Node);
-    const data = try self.allocator.create(Command);
-    data.* = command;
-    node.* = .{ .data = data };
+    node.* = .{ .data = command };
     self.mutex.lock();
     defer self.mutex.unlock();
-    if (std.meta.activeTag(command.data) == .system) {
-        std.log.debug("(PUSH) {}", .{command.data});
-    }
     self.queue.append(node);
 }
 
@@ -36,9 +31,6 @@ pub fn pop(self: *CommandQueue) !?*Command {
     defer self.mutex.unlock();
     const node = self.queue.pop();
     if (node) |n| {
-        if (std.meta.activeTag(n.data.data) == .system) {
-            std.log.debug("(POP) {}", .{n.data.data});
-        }
         defer self.allocator.destroy(n);
         return n.data;
     }
@@ -47,7 +39,7 @@ pub fn pop(self: *CommandQueue) !?*Command {
 
 pub fn deinit(self: *CommandQueue) void {
     while (self.queue.pop()) |node| {
-        self.allocator.destroy(node.data);
+        node.data.deinit();
         self.allocator.destroy(node);
     }
 }
