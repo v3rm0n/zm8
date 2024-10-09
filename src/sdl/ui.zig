@@ -6,8 +6,8 @@ const stdout = std.io.getStdOut().writer();
 
 var texture_width: usize = 320;
 var texture_height: usize = 240;
-
 var dirty: bool = true;
+var background_color: SDL.Color = .black;
 
 const UI = @This();
 
@@ -16,7 +16,6 @@ renderer: SDL.Renderer,
 main_texture: SDL.Texture,
 full_screen: bool,
 font: SDLFont,
-background_color: SDL.Color,
 
 pub fn init(full_screen: bool, use_gpu: bool) !UI {
     std.log.debug("Initialising SDL UI", .{});
@@ -48,8 +47,6 @@ pub fn init(full_screen: bool, use_gpu: bool) !UI {
         texture_height,
     );
 
-    const background_color: SDL.Color = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
-
     try renderer.setTarget(main_texture);
 
     try renderer.setColor(background_color);
@@ -63,7 +60,6 @@ pub fn init(full_screen: bool, use_gpu: bool) !UI {
         .main_texture = main_texture,
         .full_screen = full_screen,
         .font = try SDLFont.init(renderer, false, false),
-        .background_color = background_color,
     };
 }
 
@@ -85,7 +81,7 @@ pub fn adjustSize(self: *UI, width: usize, height: usize) !void {
         texture_height,
     );
     try self.renderer.setTarget(self.main_texture);
-    try self.renderer.setColor(self.background_color);
+    try self.renderer.setColor(background_color);
     try self.renderer.clear();
     dirty = true;
 }
@@ -128,16 +124,11 @@ pub fn drawRectangle(
 
     if (rectangle.x == 0 and rectangle.y <= 0 and rectangle.width == texture_width and rectangle.height >= texture_height) {
         std.log.debug("Setting background color to {}", .{color});
-        self.setBackground(color);
+        background_color = color;
     }
 
     try self.renderer.setColor(color);
     try self.renderer.fillRect(rectangle);
-    dirty = true;
-}
-
-fn setBackground(self: *UI, color: SDL.Color) void {
-    self.background_color = color;
     dirty = true;
 }
 
@@ -161,7 +152,7 @@ pub fn drawOscilloscope(
             .height = self.font.inline_font.waveform_max_height,
         };
 
-    try self.renderer.setColor(self.background_color);
+    try self.renderer.setColor(background_color);
     try self.renderer.fillRect(waveform_area);
 
     var waveform_points: [480]SDL.Point = undefined;
@@ -185,7 +176,7 @@ pub fn render(self: *UI) !void {
     if (dirty) {
         dirty = false;
         try self.renderer.setTarget(null);
-        try self.renderer.setColor(self.background_color);
+        try self.renderer.setColor(background_color);
         try self.renderer.clear();
         try self.renderer.copy(self.main_texture, null, null);
         self.renderer.present();

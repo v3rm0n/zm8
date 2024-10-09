@@ -26,11 +26,11 @@ pub fn init(
     try usb_device.claimInterface(audio_interface_out);
     try usb_device.setInterfaceAltSetting(audio_interface_out, 1);
 
-    var transferList = try TransferList.initCapacity(allocator, number_of_transfers);
-    errdefer transferList.deinit();
+    var transfer_list = try TransferList.initCapacity(allocator, number_of_transfers);
+    errdefer transfer_list.deinit();
 
     for (0..number_of_transfers) |_| {
-        try transferList.append(try startUsbTransfer(allocator, usb_device, ring_buffer));
+        try transfer_list.append(try startUsbTransfer(allocator, usb_device, ring_buffer));
     }
 
     std.log.debug("Transfers created and submitted", .{});
@@ -38,7 +38,7 @@ pub fn init(
     return .{
         .allocator = allocator,
         .usb_device = usb_device,
-        .transfers = transferList,
+        .transfers = transfer_list,
     };
 }
 
@@ -63,7 +63,7 @@ fn startUsbTransfer(
 }
 
 fn transferCallback(transfer: *Transfer) void {
-    if (transfer.transferStatus() != zusb.TransferStatus.Completed) {
+    if (transfer.transferStatus() != .Completed) {
         return;
     }
     var isoPackets = transfer.isoPackets();

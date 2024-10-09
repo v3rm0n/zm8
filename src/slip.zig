@@ -51,21 +51,22 @@ pub fn Slip(
 
         pub fn init() !Self {
             return .{
-                .buffer = try BufferType.init(0),
-                .state = SlipState.normal,
+                .buffer = .{ .len = 0 },
+                .state = .normal,
             };
         }
 
-        pub fn readAll(self: *Self, allocator: std.mem.Allocator, bytes: []const u8) !SlipPackagesIterator {
+        pub fn readAll(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            bytes: []const u8,
+        ) !SlipPackagesIterator {
             var list = std.ArrayList([]u8).init(allocator);
             defer list.deinit();
 
             for (bytes) |byte| {
-                const maybe_package = try self.read(@enumFromInt(byte));
-                if (maybe_package) |pkg| {
-                    const pkg_copy = try allocator.alloc(u8, pkg.len);
-                    @memcpy(pkg_copy, pkg);
-                    try list.append(pkg_copy);
+                if (try self.read(@enumFromInt(byte))) |package| {
+                    try list.append(try allocator.dupe(u8, package));
                 }
             }
 

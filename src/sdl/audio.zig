@@ -27,10 +27,10 @@ pub fn init(
 
     const audio_spec = SDL.AudioSpecRequest{
         .sample_rate = 44100,
-        .buffer_format = SDL.AudioFormat.s16,
+        .buffer_format = .s16,
         .channel_count = 2,
         .buffer_size_in_frames = audio_buffer_size,
-        .callback = SDLAudio.audioCallback,
+        .callback = audioCallback,
         .userdata = @ptrCast(audio_buffer),
     };
 
@@ -57,15 +57,15 @@ pub fn init(
 
 fn audioCallback(user_data: ?*anyopaque, stream: [*c]u8, length: c_int) callconv(.C) void {
     const ring_buffer: *RingBuffer = @ptrCast(@alignCast(user_data orelse @panic("No user data provided!")));
-    const ulength: usize = @intCast(length);
+    const stream_size: usize = @intCast(length);
     const read_length = ring_buffer.len();
-    const to_read = @min(read_length, ulength);
-    ring_buffer.readFirst(stream[0..ulength], to_read) catch |err| {
-        std.log.err("Could not read from ring buffer: {}\n read length {}", .{ err, ulength });
+    const to_read = @min(read_length, stream_size);
+    ring_buffer.readFirst(stream[0..stream_size], to_read) catch |err| {
+        std.log.err("Could not read from ring buffer: {}\n read length {}", .{ err, stream_size });
     };
 
-    if (to_read < ulength) {
-        @memset(stream[to_read..ulength], 0);
+    if (to_read < stream_size) {
+        @memset(stream[to_read..stream_size], 0);
     }
 }
 

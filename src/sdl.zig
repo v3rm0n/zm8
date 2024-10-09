@@ -1,12 +1,18 @@
 const std = @import("std");
 const UI = @import("sdl/ui.zig");
 const Command = @import("command.zig");
+const CommandQueue = @import("command_queue.zig");
 const SDL = @import("sdl2");
 const M8 = @import("m8.zig");
 const Config = @import("config.zig");
 const SDLUI = @import("sdl/ui.zig");
 const SDLAudio = @import("sdl/audio.zig");
 const zusb = @import("zusb");
+const UsbEventHandler = @import("usb/event_handler.zig");
+const UsbAudio = @import("usb/audio.zig");
+const usb = @import("usb/device.zig");
+const UsbSerial = @import("usb/serial.zig");
+const UsbSerialTransfer = @import("usb/serial_transfer.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -38,21 +44,36 @@ pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
     var usb_context = try zusb.Context.init();
     defer usb_context.deinit();
 
-    var m8 = try M8.init(
-        allocator,
-        audio_buffer,
-        preferred_usb_device,
-        &usb_context,
-    );
-    defer m8.deinit();
+    var usb_thread = try UsbEventHandler.init(allocator, &usb_context);
+    defer usb_thread.deinit();
 
-    const m8_start = try m8.start();
-    defer m8_start.deinit();
+    var device_handle = try usb.openDevice(&usb_context, preferred_usb_device);
+    defer device_handle.deinit();
+
+    const command_queue = try CommandQueue.init(allocator);
+    defer command_queue.deinit();
+
+    var serial = try UsbSerial.init(
+        allocator,
+        &device_handle,
+        1024,
+        command_queue.writer(),
+    );
+    defer serial.deinit();
+
+    var audio: ?UsbAudio = null;
+    if (audio_buffer) |rb| {
+        audio = try UsbAudio.init(allocator, &device_handle, rb);
+    }
+    defer if (audio) |*device| device.deinit();
+
+    var m8 = try M8.init(allocator, serial.writer());
+    defer m8.deinit();
 
     std.log.debug("Enable display", .{});
     try m8.enableAndResetDisplay();
 
-    try startMainLoop(&ui, &m8, config.graphics.idle_ms);
+    try startMainLoop(&ui, &m8, command_queue, config.graphics.idle_ms);
 }
 
 fn readConfig(allocator: std.mem.Allocator) !Config {
@@ -62,7 +83,7 @@ fn readConfig(allocator: std.mem.Allocator) !Config {
     return try Config.init(allocator, config_file.reader());
 }
 
-fn startMainLoop(ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
+fn startMainLoop(ui: *SDLUI, m8: *M8, command_queue: CommandQueue, idle_ms: u32) !void {
     std.log.info("Starting main loop", .{});
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {
@@ -96,7 +117,7 @@ fn startMainLoop(ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
             }
         }
 
-        while (try m8.popCommand()) |command| {
+        while (command_queue.readItem()) |command| {
             defer command.deinit();
             try handleCommand(ui, command);
         }
