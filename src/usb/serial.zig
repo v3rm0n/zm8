@@ -1,7 +1,8 @@
 const std = @import("std");
 const zusb = @import("zusb");
 const UsbSerialTransfer = @import("serial_transfer.zig");
-const RingBuffer = std.RingBuffer;
+
+pub const SerialQueue = std.fifo.LinearFifo(u8, .Dynamic);
 
 const serial_endpoint_out = 0x03;
 const serial_endpoint_in = 0x83;
@@ -15,21 +16,26 @@ var pending_transfers_count: usize = 0;
 allocator: std.mem.Allocator,
 device_handle: *zusb.DeviceHandle,
 usb_reader: UsbSerialTransfer,
+queue: *SerialQueue,
 
 pub fn init(
     allocator: std.mem.Allocator,
     device_handle: *zusb.DeviceHandle,
     buffer_size: usize,
-    read_writer: std.io.AnyWriter,
 ) !UsbSerial {
     try initInterface(device_handle);
 
-    const usb_reader = try UsbSerialTransfer.init(allocator, device_handle, buffer_size, read_writer);
+    const queue = try allocator.create(SerialQueue);
+    queue.* = SerialQueue.init(allocator);
+
+    const usb_reader = try UsbSerialTransfer.init(allocator, device_handle, buffer_size, queue);
+    errdefer usb_reader.deinit();
 
     return .{
         .allocator = allocator,
         .device_handle = device_handle,
         .usb_reader = usb_reader,
+        .queue = queue,
     };
 }
 
@@ -45,6 +51,18 @@ fn initInterface(device_handle: *zusb.DeviceHandle) zusb.Error!void {
     const encoding = [_](u8){ 0x00, 0xC2, 0x01, 0x00, 0x00, 0x00, 0x08 };
     _ = try device_handle.writeControl(0x21, 0x20, 0, 0, &encoding, 0);
     std.log.info("Interface initialisation finished", .{});
+}
+
+pub fn reader(self: *const UsbSerial) std.io.AnyReader {
+    return .{ .context = self, .readFn = read };
+}
+
+pub fn read(
+    ptr: *const anyopaque,
+    buffer: []u8,
+) zusb.Error!usize {
+    const self: *UsbSerial = @constCast(@alignCast(@ptrCast(ptr)));
+    return self.queue.read(buffer);
 }
 
 pub fn writer(self: *const UsbSerial) std.io.AnyWriter {
@@ -80,6 +98,8 @@ fn writeCallback(transfer: *Transfer) void {
 pub fn deinit(self: *UsbSerial) void {
     std.log.debug("Deiniting Serial", .{});
     self.usb_reader.deinit();
+    self.queue.deinit();
+    self.allocator.destroy(self.queue);
     while (pending_transfers_count > 0) {
         std.log.debug("Pending transfer count {}", .{pending_transfers_count});
         std.Thread.sleep(100 * 1000);

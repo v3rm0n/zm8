@@ -18,8 +18,6 @@ const stdout = std.io.getStdOut().writer();
 
 const SDLHandler = @This();
 
-ui: *UI,
-
 pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
     std.log.debug("Starting with SDL UI", .{});
     const config = readConfig(allocator) catch |err| blk: {
@@ -50,14 +48,10 @@ pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
     var device_handle = try usb.openDevice(&usb_context, preferred_usb_device);
     defer device_handle.deinit();
 
-    const command_queue = try CommandQueue.init(allocator);
-    defer command_queue.deinit();
-
     var serial = try UsbSerial.init(
         allocator,
         &device_handle,
         1024,
-        command_queue.writer(),
     );
     defer serial.deinit();
 
@@ -67,13 +61,13 @@ pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
     }
     defer if (audio) |*device| device.deinit();
 
-    var m8 = try M8.init(allocator, serial.writer());
+    var m8 = try M8.init(allocator, serial.writer(), serial.reader());
     defer m8.deinit();
 
     std.log.debug("Enable display", .{});
     try m8.enableAndResetDisplay();
 
-    try startMainLoop(&ui, &m8, command_queue, config.graphics.idle_ms);
+    try startMainLoop(allocator, &ui, &m8, config.graphics.idle_ms);
 }
 
 fn readConfig(allocator: std.mem.Allocator) !Config {
@@ -83,7 +77,7 @@ fn readConfig(allocator: std.mem.Allocator) !Config {
     return try Config.init(allocator, config_file.reader());
 }
 
-fn startMainLoop(ui: *SDLUI, m8: *M8, command_queue: CommandQueue, idle_ms: u32) !void {
+fn startMainLoop(allocator: std.mem.Allocator, ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
     std.log.info("Starting main loop", .{});
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {
@@ -117,7 +111,10 @@ fn startMainLoop(ui: *SDLUI, m8: *M8, command_queue: CommandQueue, idle_ms: u32)
             }
         }
 
-        while (command_queue.readItem()) |command| {
+        const commands = try m8.readCommands();
+        defer allocator.free(commands);
+
+        for (commands) |command| {
             defer command.deinit();
             try handleCommand(ui, command);
         }

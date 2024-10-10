@@ -1,13 +1,6 @@
 const std = @import("std");
-const Slip = @import("slip.zig").Slip(1024);
 const Command = @import("command.zig");
-
-const CommandQueue = std.fifo.LinearFifo(*Command, .Dynamic);
-
-const stdout = std.io.getStdOut().writer();
-
-const serial_endpoint_out = 0x03;
-const serial_endpoint_in = 0x83;
+const Slip = @import("slip.zig").Slip(1024);
 
 pub const Key = enum(u8) {
     edit = 1,
@@ -30,16 +23,37 @@ const M8 = @This();
 
 allocator: std.mem.Allocator,
 serial_writer: std.io.AnyWriter,
+serial_reader: std.io.AnyReader,
+slip: *Slip,
 
 pub fn init(
     allocator: std.mem.Allocator,
     serial_writer: std.io.AnyWriter,
+    serial_reader: std.io.AnyReader,
 ) !M8 {
     std.log.debug("Initialising M8", .{});
+    const slip = try allocator.create(Slip);
+    errdefer allocator.destroy(slip);
+    slip.* = Slip.init();
     return .{
         .allocator = allocator,
         .serial_writer = serial_writer,
+        .serial_reader = serial_reader,
+        .slip = slip,
     };
+}
+
+pub fn readCommands(self: *M8) ![]*Command {
+    var packages = try self.slip.readFromReader(self.allocator, self.serial_reader);
+    defer packages.deinit();
+
+    var list = std.ArrayList(*Command).init(self.allocator);
+    defer list.deinit();
+
+    while (packages.next()) |pkg| {
+        try list.append(try Command.parseCommand(self.allocator, pkg));
+    }
+    return try list.toOwnedSlice();
 }
 
 pub fn resetDisplay(self: *M8) !void {
@@ -96,4 +110,5 @@ pub fn deinit(self: *M8) void {
     self.disconnect() catch |err| {
         std.log.err("Failed to disconnect: {}", .{err});
     };
+    self.allocator.destroy(self.slip);
 }

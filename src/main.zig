@@ -26,7 +26,5 @@ pub fn main() !void {
         std.log.info("Preferred device set to {s}", .{preferred_usb_device.?});
     }
     std.log.debug("Arguments processed", .{});
-    Sdl.start(allocator, preferred_usb_device) catch |err| {
-        std.log.err("Error from SDL execution: {}", .{err});
-    };
+    try Sdl.start(allocator, preferred_usb_device);
 }

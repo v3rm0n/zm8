@@ -1,12 +1,13 @@
 const std = @import("std");
 const zusb = @import("zusb");
 const RingBuffer = std.RingBuffer;
+const SerialQueue = @import("serial.zig").SerialQueue;
 
 const serial_endpoint_in = 0x83;
 
 const UsbSerialTransfer = @This();
 
-const Transfer = zusb.Transfer(std.io.AnyWriter);
+const Transfer = zusb.Transfer(SerialQueue);
 
 allocator: std.mem.Allocator,
 transfer: *Transfer,
@@ -16,19 +17,15 @@ pub fn init(
     allocator: std.mem.Allocator,
     device_handle: *zusb.DeviceHandle,
     buffer_size: usize,
-    writer: std.io.AnyWriter,
+    queue: *SerialQueue,
 ) !UsbSerialTransfer {
-    const heap_writer = try allocator.create(std.io.AnyWriter);
-    errdefer allocator.destroy(heap_writer);
-    heap_writer.* = writer;
-
     var transfer = try Transfer.fillBulk(
         allocator,
         device_handle,
         serial_endpoint_in,
         buffer_size,
         readCallback,
-        heap_writer,
+        queue,
         1,
         .{},
     );
@@ -53,7 +50,6 @@ pub fn deinit(self: @This()) void {
         std.log.debug("Waiting for pending serial transfer", .{});
         std.Thread.sleep(10 * 1000);
     }
-    self.allocator.destroy(self.transfer.user_data.?);
     std.log.debug("Deiniting USB serial transfer", .{});
     self.transfer.deinit();
 }

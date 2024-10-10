@@ -49,11 +49,21 @@ pub fn Slip(
         buffer: BufferType,
         state: SlipState,
 
-        pub fn init() !Self {
+        pub fn init() Self {
             return .{
                 .buffer = .{ .len = 0 },
                 .state = .normal,
             };
+        }
+
+        pub fn readFromReader(
+            self: *Self,
+            allocator: std.mem.Allocator,
+            reader: std.io.AnyReader,
+        ) !SlipPackagesIterator {
+            var bytes: [buffer_size]u8 = undefined;
+            const count = try reader.read(&bytes);
+            return try self.readAll(allocator, bytes[0..count]);
         }
 
         pub fn readAll(
