@@ -13,13 +13,14 @@ const UsbAudio = @import("usb/audio.zig");
 const usb = @import("usb/device.zig");
 const UsbSerial = @import("usb/serial.zig");
 const UsbSerialTransfer = @import("usb/serial_transfer.zig");
+const SerialPortSerial = @import("serial/serial.zig");
 
 const stdout = std.io.getStdOut().writer();
 
 const SDLHandler = @This();
 
-pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
-    std.log.debug("Starting with SDL UI", .{});
+pub fn startUsb(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
+    std.log.debug("Starting with SDL UI and libusb", .{});
     const config = readConfig(allocator) catch |err| blk: {
         std.log.err("Failed to read config file: {}\n", .{err});
         break :blk Config.default(allocator);
@@ -60,6 +61,32 @@ pub fn start(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
         audio = try UsbAudio.init(allocator, &device_handle, rb);
     }
     defer if (audio) |*device| device.deinit();
+
+    var m8 = try M8.init(allocator, serial.writer(), serial.reader());
+    defer m8.deinit();
+
+    std.log.debug("Enable display", .{});
+    try m8.enableAndResetDisplay();
+
+    try startMainLoop(allocator, &ui, &m8, config.graphics.idle_ms);
+}
+
+pub fn startSerialPort(allocator: std.mem.Allocator, preferred_serial_device: ?[]u8) !void {
+    std.log.debug("Starting with SDL UI and libserialport", .{});
+    const config = readConfig(allocator) catch |err| blk: {
+        std.log.err("Failed to read config file: {}\n", .{err});
+        break :blk Config.default(allocator);
+    };
+    defer config.deinit();
+
+    try SDL.init(SDL.InitFlags.everything);
+    defer SDL.quit();
+
+    var ui = try SDLUI.init(config.graphics.fullscreen, config.graphics.use_gpu);
+    defer ui.deinit();
+
+    const serial = try SerialPortSerial.init(allocator, preferred_serial_device);
+    defer serial.deinit();
 
     var m8 = try M8.init(allocator, serial.writer(), serial.reader());
     defer m8.deinit();

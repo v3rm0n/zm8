@@ -1,7 +1,9 @@
 const std = @import("std");
 const M8 = @import("m8.zig");
 const Sdl = @import("sdl.zig");
-const dev = @import("usb/device.zig");
+const usb = @import("usb/device.zig");
+const serial = @import("serial/device.zig");
+const config = @import("config");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -18,7 +20,11 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
     var preferred_usb_device: ?[]u8 = null;
     if (args.len == 2 and std.mem.eql(u8, args[1], "--list")) {
-        try dev.listDevices();
+        if (config.use_libusb) {
+            try usb.listDevices();
+        } else {
+            try serial.listDevices();
+        }
         return;
     }
     if (args.len == 3 and std.mem.eql(u8, args[1], "--dev")) {
@@ -26,5 +32,9 @@ pub fn main() !void {
         std.log.info("Preferred device set to {s}", .{preferred_usb_device.?});
     }
     std.log.debug("Arguments processed", .{});
-    try Sdl.start(allocator, preferred_usb_device);
+    if (config.use_libusb) {
+        try Sdl.startUsb(allocator, preferred_usb_device);
+    } else {
+        try Sdl.startSerialPort(allocator, preferred_usb_device);
+    }
 }

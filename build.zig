@@ -5,10 +5,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    options.addOption(bool, "use_libusb", false);
+
     const sdk = sdl.init(b, .{});
-
     const zusb = b.dependency("zusb", .{});
-
     const ini = b.dependency("ini", .{});
 
     const exe = b.addExecutable(.{
@@ -18,11 +19,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe.root_module.addOptions("config", options);
+
     const zusb_module = zusb.module("zusb");
 
     zusb_module.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
 
     exe.linkSystemLibrary("usb-1.0");
+    exe.linkSystemLibrary("serialport");
 
     sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
     exe.root_module.addImport("sdl2", sdk.getWrapperModule());
