@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>zm8</title>
+</head>
+<body>
+    <button id="connectButton">Connect to M8</button>
+    <canvas id="canvas" width="320" height="240" style="border:1px solid #000000;"></canvas>
+    <script>
+        var Module = {
+          canvas: (function() {
+                  var canvas = document.getElementById('canvas');
+                  return canvas;
+              })(),
+            onRuntimeInitialized: function() {
+                // Module is ready to use
+            }
+        };
+
+        function clickToRun() {
+              var script = document.createElement('script');
+              script.setAttribute('type', 'text/javascript');
+              script.setAttribute('src', 'zig-out/web/zm8.js');
+              script.setAttribute('async', '');
+              document.body.appendChild(script);
+        }
+
+        // Define webserial_open in the global scope
+        async function webserial_open() {
+          try {
+            const filters = [
+              { usbVendorId: 0x16c0, usbProductId: 0x048a },
+            ];
+            Module.port = await navigator.serial.requestPort({filters});
+            await Module.port.open({ baudRate: 115200, dataBits:8, stopBits:1, parity:"none", flowControl:"none" });
+            Module.reader = Module.port.readable.getReader();
+            Module.writer = Module.port.writable.getWriter();
+            console.log('Serial port opened successfully');
+          } catch (e) {
+            console.error('Error opening serial port:', e);
+            throw e; // Re-throw the error to be handled by the caller
+          }
+        }
+
+        document.getElementById('connectButton').addEventListener('click', async () => {
+            try {
+                await webserial_open();
+                clickToRun();
+            } catch (e) {
+                console.error('Error during serial port connection:', e);
+            }
+        });
+    </script>
+</body>
+</html>
