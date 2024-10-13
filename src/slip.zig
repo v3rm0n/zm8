@@ -128,7 +128,7 @@ pub fn Slip(
 
 fn testSlip(input: []const u8, expected: []const u8) !void {
     const TestSlip = Slip(1024);
-    var slip = try TestSlip.init();
+    var slip = TestSlip.init();
     var packages = try slip.readAll(std.testing.allocator, input);
     defer packages.deinit();
     while (packages.next()) |pkg| {
