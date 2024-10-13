@@ -40,8 +40,32 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: ${{ env.ZIG_VERSION }}
-      - name: Run tests
+      - name: Build
         run: zig build --summary all
+  linux-libusb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsdl2-dev libsdl2-image-dev libwebp-dev libusb-1.0-0-dev libserialport-dev
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Build
+        run: zig build -Duse_libusb --summary all
+  linux-emscripten:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Build
+        run: zig build -Dtarget=wasm32-emscripten --summary all
   macos:
     runs-on: macos-latest
     steps:
@@ -52,5 +76,5 @@ jobs:
         uses: mlugg/setup-zig@v1
         with:
           version: ${{ env.ZIG_VERSION }}
-      - name: Run tests
+      - name: Build
         run: zig build --summary all
