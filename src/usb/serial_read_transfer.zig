@@ -1,24 +1,27 @@
 const std = @import("std");
 const zusb = @import("zusb");
 const RingBuffer = std.RingBuffer;
-const SerialQueue = @import("serial.zig").SerialQueue;
 
 const serial_endpoint_in = 0x83;
 
-const UsbSerialTransfer = @This();
+const UsbSerialReadTransfer = @This();
 
 const Transfer = zusb.Transfer(SerialQueue);
+const SerialQueue = std.fifo.LinearFifo(u8, .Dynamic);
 
 allocator: std.mem.Allocator,
 transfer: *Transfer,
+queue: *SerialQueue,
 
 //Wraps a writer and uses a continuous bulk transfer to read from a USB serial device.
 pub fn init(
     allocator: std.mem.Allocator,
     device_handle: *zusb.DeviceHandle,
     buffer_size: usize,
-    queue: *SerialQueue,
-) !UsbSerialTransfer {
+) !UsbSerialReadTransfer {
+    const queue = try allocator.create(SerialQueue);
+    queue.* = SerialQueue.init(allocator);
+
     var transfer = try Transfer.fillBulk(
         allocator,
         device_handle,
@@ -30,7 +33,11 @@ pub fn init(
         .{},
     );
     try transfer.submit();
-    return .{ .transfer = transfer, .allocator = allocator };
+    return .{ .transfer = transfer, .allocator = allocator, .queue = queue };
+}
+
+pub fn read(self: UsbSerialReadTransfer, buffer: []u8) void {
+    return self.queue.read(buffer);
 }
 
 fn readCallback(transfer: *Transfer) void {
@@ -52,4 +59,5 @@ pub fn deinit(self: @This()) void {
     }
     std.log.debug("Deiniting USB serial transfer", .{});
     self.transfer.deinit();
+    self.allocator.destroy(self.queue);
 }

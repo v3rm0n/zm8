@@ -1,7 +1,6 @@
 const std = @import("std");
 const UI = @import("sdl/ui.zig");
 const Command = @import("command.zig");
-const CommandQueue = @import("command_queue.zig");
 const SDL = @import("sdl2");
 const M8 = @import("m8.zig");
 const Config = @import("config.zig");
@@ -15,6 +14,7 @@ const usb = @import("usb/device.zig");
 const UsbSerial = @import("usb/serial.zig");
 const UsbSerialTransfer = @import("usb/serial_transfer.zig");
 const SerialPortSerial = @import("serial/serial.zig");
+const WebSerial = @import("webserial/serial.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -103,6 +103,22 @@ pub fn startSerialPort(allocator: std.mem.Allocator, preferred_serial_device: ?[
     try m8.enableAndResetDisplay();
 
     try startMainLoop(allocator, &ui, &m8, config.graphics.idle_ms);
+}
+
+pub fn startWebSerial(allocator: std.mem.Allocator) !void {
+    try SDL.init(.{ .video = true });
+    defer SDL.quit();
+
+    var ui = try SDLUI.init(false, true);
+    defer ui.deinit();
+
+    const serial = WebSerial.init();
+
+    var m8 = try M8.init(allocator, serial.writer(), serial.reader());
+    defer m8.deinit();
+
+    std.log.debug("Enable display", .{});
+    try m8.enableAndResetDisplay();
 }
 
 fn readConfig(allocator: std.mem.Allocator) !Config {

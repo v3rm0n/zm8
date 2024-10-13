@@ -1,22 +1,14 @@
 const std = @import("std");
 const zusb = @import("zusb");
-const UsbSerialTransfer = @import("serial_transfer.zig");
-
-pub const SerialQueue = std.fifo.LinearFifo(u8, .Dynamic);
-
-const serial_endpoint_out = 0x03;
-const serial_endpoint_in = 0x83;
+const UsbSerialReadTransfer = @import("serial_read_transfer.zig");
+const UsbSerialWriteTransfer = @import("serial_write_transfer.zig");
 
 const UsbSerial = @This();
 
-const Transfer = zusb.Transfer(std.io.AnyWriter);
-
-var pending_transfers_count: usize = 0;
-
 allocator: std.mem.Allocator,
 device_handle: *zusb.DeviceHandle,
-usb_reader: UsbSerialTransfer,
-queue: *SerialQueue,
+usb_reader: UsbSerialReadTransfer,
+usb_writer: UsbSerialWriteTransfer,
 
 pub fn init(
     allocator: std.mem.Allocator,
@@ -25,17 +17,17 @@ pub fn init(
 ) !UsbSerial {
     try initInterface(device_handle);
 
-    const queue = try allocator.create(SerialQueue);
-    queue.* = SerialQueue.init(allocator);
-
-    const usb_reader = try UsbSerialTransfer.init(allocator, device_handle, buffer_size, queue);
+    const usb_reader = try UsbSerialReadTransfer.init(allocator, device_handle, buffer_size);
     errdefer usb_reader.deinit();
+
+    const usb_writer = try UsbSerialWriteTransfer.init(allocator, device_handle, buffer_size);
+    errdefer usb_writer.deinit();
 
     return .{
         .allocator = allocator,
         .device_handle = device_handle,
         .usb_reader = usb_reader,
-        .queue = queue,
+        .usb_writer = usb_writer,
     };
 }
 
@@ -57,53 +49,24 @@ pub fn reader(self: *const UsbSerial) std.io.AnyReader {
     return .{ .context = self, .readFn = read };
 }
 
-pub fn read(
-    ptr: *const anyopaque,
-    buffer: []u8,
-) zusb.Error!usize {
+pub fn read(ptr: *const anyopaque, buffer: []u8) zusb.Error!usize {
     const self: *UsbSerial = @constCast(@alignCast(@ptrCast(ptr)));
-    return self.queue.read(buffer);
+    return self.usb_reader.read(buffer);
 }
 
 pub fn writer(self: *const UsbSerial) std.io.AnyWriter {
     return .{ .context = self, .writeFn = write };
 }
 
-pub fn write(
-    ptr: *const anyopaque,
-    buffer: []const u8,
-) zusb.Error!usize {
+pub fn write(ptr: *const anyopaque, buffer: []const u8) zusb.Error!usize {
     const self: *UsbSerial = @constCast(@alignCast(@ptrCast(ptr)));
-    var transfer = try Transfer.fillBulk(
-        self.allocator,
-        self.device_handle,
-        serial_endpoint_out,
-        buffer.len,
-        writeCallback,
-        null,
-        50,
-        .{},
-    );
-    transfer.setData(buffer);
-    pending_transfers_count += 1;
-    try transfer.submit();
-    return buffer.len;
-}
-
-fn writeCallback(transfer: *Transfer) void {
-    defer transfer.deinit();
-    pending_transfers_count -= 1;
+    return self.usb_writer.write(buffer);
 }
 
 pub fn deinit(self: *UsbSerial) void {
     std.log.debug("Deiniting Serial", .{});
+    self.usb_writer.deinit();
     self.usb_reader.deinit();
-    self.queue.deinit();
-    self.allocator.destroy(self.queue);
-    while (pending_transfers_count > 0) {
-        std.log.debug("Pending transfer count {}", .{pending_transfers_count});
-        std.Thread.sleep(100 * 1000);
-    }
     std.log.debug("Releasing interfaces {} and {}", .{ 1, 0 });
     self.device_handle.releaseInterface(1) catch |err| std.log.err("Could not release interface: {}", .{err});
     self.device_handle.releaseInterface(0) catch |err| std.log.err("Could not release interface: {}", .{err});

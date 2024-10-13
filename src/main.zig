@@ -4,8 +4,15 @@ const Sdl = @import("sdl.zig");
 const usb = @import("usb/device.zig");
 const serial = @import("serial/device.zig");
 const config = @import("config");
+const builtin = @import("builtin");
 
 const stdout = std.io.getStdOut().writer();
+
+pub const os = if (builtin.os.tag != .emscripten and builtin.os.tag != .wasi) std.os else struct {
+    pub const heap = struct {
+        pub const page_allocator = std.heap.c_allocator;
+    };
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -13,6 +20,11 @@ pub fn main() !void {
     defer {
         const deinit_status = gpa.deinit();
         if (deinit_status == .leak) @panic("Memory leak");
+    }
+
+    if (builtin.os.tag == .emscripten) {
+        try Sdl.startWebSerial(allocator);
+        return;
     }
 
     std.log.debug("Processing arguments", .{});
