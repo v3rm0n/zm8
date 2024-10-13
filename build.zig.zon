@@ -12,7 +12,6 @@
             .hash = "1220c50cbc5bbd2758216cd7840712fa2b76a446c801345780cd30454e6d55670b7e",
         },
         .zusb = .{
-            //.path = "../zusb",
             .url = "git+https://github.com/v3rm0n/zusb#bulk",
             .hash = "12208039eba5c0add5d4daf3ac1216308e9818236e482efde2e96ac6244cbf792bbf",
         },
