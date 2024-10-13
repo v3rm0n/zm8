@@ -12,7 +12,6 @@ const UsbEventHandler = @import("usb/event_handler.zig");
 const UsbAudio = @import("usb/audio.zig");
 const usb = @import("usb/device.zig");
 const UsbSerial = @import("usb/serial.zig");
-const UsbSerialTransfer = @import("usb/serial_transfer.zig");
 const SerialPortSerial = @import("serial/serial.zig");
 const WebSerial = @import("webserial/serial.zig");
 

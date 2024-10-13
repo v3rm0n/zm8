@@ -64,8 +64,9 @@ pub fn build(b: *std.Build) !void {
 
         b.installArtifact(wasmzm8);
     } else {
+        const use_libusb = b.option(bool, "use_libusb", "Use libusb instead of libserialport") orelse false;
         const options = b.addOptions();
-        options.addOption(bool, "use_libusb", false);
+        options.addOption(bool, "use_libusb", use_libusb);
 
         const zusb = b.dependency("zusb", .{});
 

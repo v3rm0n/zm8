@@ -7,6 +7,7 @@ const SerialQueue = std.fifo.LinearFifo(u8, .Dynamic);
 
 const serial_endpoint_out = 0x03;
 var pending_transfers_count: usize = 0;
+allocator: std.mem.Allocator,
 device_handle: *zusb.DeviceHandle,
 
 pub fn init(

@@ -36,7 +36,7 @@ pub fn init(
     return .{ .transfer = transfer, .allocator = allocator, .queue = queue };
 }
 
-pub fn read(self: UsbSerialReadTransfer, buffer: []u8) void {
+pub fn read(self: UsbSerialReadTransfer, buffer: []u8) usize {
     return self.queue.read(buffer);
 }
 
@@ -59,5 +59,6 @@ pub fn deinit(self: @This()) void {
     }
     std.log.debug("Deiniting USB serial transfer", .{});
     self.transfer.deinit();
+    self.queue.deinit();
     self.allocator.destroy(self.queue);
 }

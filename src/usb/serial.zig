@@ -20,7 +20,7 @@ pub fn init(
     const usb_reader = try UsbSerialReadTransfer.init(allocator, device_handle, buffer_size);
     errdefer usb_reader.deinit();
 
-    const usb_writer = try UsbSerialWriteTransfer.init(allocator, device_handle, buffer_size);
+    const usb_writer = try UsbSerialWriteTransfer.init(allocator, device_handle);
     errdefer usb_writer.deinit();
 
     return .{

@@ -1,7 +1,7 @@
 [
   {
     "label": "Zig Run as Superuser",
-    "command": "sudo zig build run"
+    "command": "sudo zig build run -Duse_libusb"
   },
   {
     "label": "Zig Run --list",
@@ -9,7 +9,7 @@
   },
   {
     "label": "Zig Run --list as Superuser",
-    "command": "sudo zig build run -- --list"
+    "command": "sudo zig build run -Duse_libusb -- --list"
   },
   {
     "label": "Zig Run --dev",
@@ -17,10 +17,10 @@
   },
   {
     "label": "Zig Run --dev as Superuser",
-    "command": "sudo zig build run -- --dev 1:1"
+    "command": "sudo zig build run -Duse_libusb -- --dev 1:1"
   },
   {
-    "label": "Zig Build Web",
+    "label": "Zig Build Run Web",
     "command": "zig build -Dtarget=wasm32-emscripten run"
   }
 ]
