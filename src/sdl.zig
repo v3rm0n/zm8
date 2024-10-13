@@ -118,6 +118,8 @@ pub fn startWebSerial(allocator: std.mem.Allocator) !void {
 
     std.log.debug("Enable display", .{});
     try m8.enableAndResetDisplay();
+
+    try startMainLoop(allocator, &ui, &m8, 10);
 }
 
 fn readConfig(allocator: std.mem.Allocator) !Config {

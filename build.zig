@@ -141,7 +141,7 @@ pub fn emLinkStep(b: *Build, options: EmLinkOptions) !*Build.Step.InstallDir {
     const emcc = b.addSystemCommand(&.{emcc_path});
     emcc.setName("emcc"); // hide emcc path
     if (options.optimize == .Debug) {
-        emcc.addArgs(&.{ "-Og", "-sSAFE_HEAP=1", "-sSTACK_OVERFLOW_CHECK=1", "-gsource-map" });
+        emcc.addArgs(&.{ "-Og", "-sSAFE_HEAP=1", "-sSTACK_OVERFLOW_CHECK=1", "-gsource-map", "-sASSERTIONS=1" });
     } else {
         emcc.addArg("-sASSERTIONS=0");
         if (options.optimize == .ReleaseSmall) {
@@ -215,7 +215,7 @@ pub const EmRunOptions = struct {
 };
 pub fn emRunStep(b: *Build, options: EmRunOptions) *Build.Step.Run {
     const emrun_path = b.findProgram(&.{"emrun"}, &.{}) catch emSdkLazyPath(b, options.emsdk, &.{ "upstream", "emscripten", "emrun" }).getPath(b);
-    const emrun = b.addSystemCommand(&.{ emrun_path, "--browser=chrome", b.fmt("{s}/web/{s}.html", .{ b.install_path, options.name }) });
+    const emrun = b.addSystemCommand(&.{ emrun_path, "--browser=chrome", b.fmt("{s}/web/index.html", .{b.install_path}) });
     return emrun;
 }
 
