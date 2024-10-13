@@ -69,6 +69,11 @@ jobs:
         with:
           name: zm8-wasm
           path: zig-out/web/zm8*
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: zig-out/web
   macos:
     runs-on: macos-latest
     steps:

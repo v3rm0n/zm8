@@ -57,6 +57,8 @@ pub fn build(b: *std.Build) !void {
             },
         });
 
+        link_step.step.dependOn(&b.addInstallFileWithDir(b.path("index.html"), .prefix, "web/index.html").step);
+
         var run = emRunStep(b, .{ .name = "zm8", .emsdk = emsdk });
         run.step.dependOn(&link_step.step);
         const run_cmd = b.step("run", "Run the demo for web via emrun");

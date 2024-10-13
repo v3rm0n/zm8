@@ -2,10 +2,10 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Zig WebSerial Example</title>
+    <title>zm8</title>
 </head>
 <body>
-    <button id="connectButton">Connect to Serial Device</button>
+    <button id="connectButton">Connect to M8</button>
     <canvas id="canvas" width="320" height="240" style="border:1px solid #000000;"></canvas>
     <script>
         var Module = {
@@ -45,7 +45,6 @@
 
         document.getElementById('connectButton').addEventListener('click', async () => {
             try {
-                // Call the WebSerial open function during the user gesture
                 await webserial_open();
                 clickToRun();
             } catch (e) {
