@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  ZIG_VERSION: 0.14.0-dev.1342+1a178d499
+  ZIG_VERSION: master
 
 jobs:
   linux:
@@ -19,7 +19,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install libsdl2-dev libsdl2-image-dev libwebp-dev libusb-1.0-0-dev
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
+        uses: mlugg/setup-zig@v1
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: Run tests
@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2 libusb
       - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v1
+        uses: mlugg/setup-zig@v1
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: Run tests
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: goto-bus-stop/setup-zig@v2
+      - uses: mlugg/setup-zig@v1
         with:
           version: ${{ env.ZIG_VERSION }}
       - run: zig fmt --check .
