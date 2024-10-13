@@ -43,14 +43,14 @@ jobs:
       - name: Build
         run: zig build --summary all
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: zm8-libserialport-linux-x86_64
           path: zig-out/bin/zm8
       - name: Build libusb
         run: zig build -Duse_libusb --summary all
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: zm8-libusb-linux-x86_64
           path: zig-out/bin/zm8
@@ -65,7 +65,7 @@ jobs:
       - name: Build
         run: zig build -Dtarget=wasm32-emscripten --summary all
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: zm8-wasm
           path: zig-out/web/zm8*
@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2 libserialport
+        run: brew install sdl2 sdl2_image sdl2_ttf libserialport
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
@@ -82,7 +82,7 @@ jobs:
       - name: Build
         run: zig build --summary all
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: zm8-libusb-macos-aarch64
           path: zig-out/bin/zm8
