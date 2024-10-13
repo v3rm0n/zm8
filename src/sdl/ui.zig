@@ -1,6 +1,7 @@
 const SDL = @import("sdl2");
 const std = @import("std");
 const SDLFont = @import("font.zig");
+const FxCube = @import("fx_cube.zig");
 
 const stdout = std.io.getStdOut().writer();
 
@@ -190,6 +191,12 @@ pub fn deinit(self: UI) void {
     self.renderer.destroy();
     self.main_texture.destroy();
     self.font.deinit();
+}
+
+fn drawCube(self: UI) FxCube {
+    const cube = FxCube.init(self.render(), background_color, texture_width, texture_height);
+    dirty = true;
+    return cube;
 }
 
 fn screenshot(self: UI) !void {

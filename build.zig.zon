@@ -19,6 +19,14 @@
             .url = "git+https://github.com/ziglibs/ini#e18d36665905c1e7ba0c1ce3e8780076b33e3002",
             .hash = "1220b0979ea9891fa4aeb85748fc42bc4b24039d9c99a4d65d893fb1c83e921efad8",
         },
+        .emsdk = .{
+            .url = "git+https://github.com/emscripten-core/emsdk#3.1.69",
+            .hash = "1220e6ed51cee3407d1adb3051c2f7e4437a211be1bb45e10cb91876d199862b40c4",
+        },
+        .sdlsrc = .{
+            .url = "git+https://github.com/v3rm0n/SDL#8593c1319f0b14cc8c5a0ad88fc91d82a327df78",
+            .hash = "12203c0baeb2e66a6183899f9b08b8f55491c49b17f3e8db36b733fb7f21e06cd8c4",
+        },
     },
     .paths = .{
         "build.zig",

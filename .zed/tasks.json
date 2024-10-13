@@ -18,5 +18,9 @@
   {
     "label": "Zig Run --dev as Superuser",
     "command": "sudo zig build run -- --dev 1:1"
+  },
+  {
+    "label": "Zig Build Web",
+    "command": "zig build -Dtarget=wasm32-emscripten run"
   }
 ]

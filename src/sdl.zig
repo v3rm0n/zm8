@@ -6,6 +6,7 @@ const SDL = @import("sdl2");
 const M8 = @import("m8.zig");
 const Config = @import("config.zig");
 const SDLUI = @import("sdl/ui.zig");
+const SDLAudioIn = @import("sdl/audio_in.zig");
 const SDLAudio = @import("sdl/audio.zig");
 const zusb = @import("zusb");
 const UsbEventHandler = @import("usb/event_handler.zig");
@@ -25,6 +26,7 @@ pub fn startUsb(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void
         std.log.err("Failed to read config file: {}\n", .{err});
         break :blk Config.default(allocator);
     };
+
     defer config.deinit();
 
     try SDL.init(SDL.InitFlags.everything);
@@ -33,9 +35,9 @@ pub fn startUsb(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void
     var ui = try SDLUI.init(config.graphics.fullscreen, config.graphics.use_gpu);
     defer ui.deinit();
 
-    var audio_device: ?SDLAudio = null;
+    var audio_device: ?SDLAudioIn = null;
     if (config.audio.audio_enabled) {
-        audio_device = try SDLAudio.init(allocator, config.audio.audio_buffer_size, config.audio.audio_device_name);
+        audio_device = try SDLAudioIn.init(allocator, config.audio.audio_buffer_size, config.audio.audio_device_name);
     }
     defer if (audio_device) |*dev| dev.deinit();
     const audio_buffer = if (audio_device) |dev| dev.audio_buffer else null;
@@ -85,6 +87,12 @@ pub fn startSerialPort(allocator: std.mem.Allocator, preferred_serial_device: ?[
     var ui = try SDLUI.init(config.graphics.fullscreen, config.graphics.use_gpu);
     defer ui.deinit();
 
+    var audio_device: ?SDLAudio = null;
+    if (config.audio.audio_enabled) {
+        audio_device = try SDLAudio.init(allocator, config.audio.audio_buffer_size, config.audio.audio_device_name);
+    }
+    defer if (audio_device) |*dev| dev.deinit();
+
     const serial = try SerialPortSerial.init(allocator, preferred_serial_device);
     defer serial.deinit();
 
@@ -104,7 +112,7 @@ fn readConfig(allocator: std.mem.Allocator) !Config {
     return try Config.init(allocator, config_file.reader());
 }
 
-fn startMainLoop(allocator: std.mem.Allocator, ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
+pub fn startMainLoop(allocator: std.mem.Allocator, ui: *SDLUI, m8: *M8, idle_ms: u32) !void {
     std.log.info("Starting main loop", .{});
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {

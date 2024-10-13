@@ -47,6 +47,20 @@ pub fn deinit(self: SDLFont) void {
     self.texture.destroy();
 }
 
+pub fn drawText(
+    self: *SDLFont,
+    renderer: SDL.Renderer,
+    text: []u8,
+    position: SDL.Point,
+    foreground: SDL.Color,
+    background: SDL.Color,
+) !void {
+    var current_position = position;
+    for (text) |character| {
+        try self.draw(renderer, character, current_position, foreground, background);
+        current_position.x += self.inline_font.glyph_x + 1;
+    }
+}
 pub fn draw(
     self: *SDLFont,
     renderer: SDL.Renderer,
