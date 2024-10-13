@@ -42,21 +42,19 @@ jobs:
           version: ${{ env.ZIG_VERSION }}
       - name: Build
         run: zig build --summary all
-  linux-libusb:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install libsdl2-dev libsdl2-image-dev libwebp-dev libusb-1.0-0-dev libserialport-dev
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          version: ${{ env.ZIG_VERSION }}
-      - name: Build
+          name: zm8-libserialport-linux-x86_64
+          path: zig-out/bin/zm8
+      - name: Build libusb
         run: zig build -Duse_libusb --summary all
-  linux-emscripten:
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: zm8-libusb-linux-x86_64
+          path: zig-out/bin/zm8
+  emscripten:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,15 +64,25 @@ jobs:
           version: ${{ env.ZIG_VERSION }}
       - name: Build
         run: zig build -Dtarget=wasm32-emscripten --summary all
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: zm8-wasm
+          path: zig-out/web/zm8*
   macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2 libusb libserialport
+        run: brew install sdl2 sdl2_image sdl2_ttf harfbuzz graphite2 libserialport
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: Build
         run: zig build --summary all
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: zm8-libusb-macos-aarch64
+          path: zig-out/bin/zm8
