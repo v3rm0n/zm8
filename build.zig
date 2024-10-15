@@ -2,74 +2,24 @@ const std = @import("std");
 const sdl = @import("sdl");
 const Build = std.Build;
 const builtin = @import("builtin");
+const android = @import("zig-android-sdk");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const android_targets = android.standardTargets(b, target);
 
-    const sdk = sdl.init(b, .{});
-    const ini = b.dependency("ini", .{});
+    const use_libusb = b.option(bool, "use_libusb", "Use libusb instead of libserialport") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "use_libusb", use_libusb or android_targets.len > 0);
 
-    if (target.result.os.tag == .emscripten) {
-        const emsdk = b.dependency("emsdk", .{});
-        const emsdk_sysroot = emSdkLazyPath(b, emsdk, &.{ "upstream", "emscripten", "cache", "sysroot" });
-        b.sysroot = emsdk_sysroot.getPath(b);
-
-        const wasmzm8 = b.addStaticLibrary(.{
-            .name = "zm8",
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-
-        // one-time setup of Emscripten SDK
-        if (try emSdkSetupStep(b, emsdk)) |emsdk_setup| {
-            wasmzm8.step.dependOn(&emsdk_setup.step);
-        }
-        // add the Emscripten system include seach path
-        wasmzm8.addSystemIncludePath(emSdkLazyPath(b, emsdk, &.{ "upstream", "emscripten", "cache", "sysroot", "include" }));
-
-        const sdl_dep = b.dependency("sdlsrc", .{
-            .optimize = .ReleaseFast,
-            .target = target,
-        });
-        sdl_dep.artifact("SDL2").addSystemIncludePath(emSdkLazyPath(b, emsdk, &.{ "upstream", "emscripten", "cache", "sysroot", "include" }));
-
-        wasmzm8.linkLibrary(sdl_dep.artifact("SDL2"));
-
-        wasmzm8.root_module.addImport("sdl2", sdk.getWrapperModule());
-        wasmzm8.root_module.addImport("ini", ini.module("ini"));
-
-        const link_step = try emLinkStep(b, .{
-            .lib_main = wasmzm8,
-            .target = target,
-            .optimize = optimize,
-            .emsdk = emsdk,
-            .extra_args = &.{
-                "-sINITIAL_MEMORY=64Mb",
-                "-sSTACK_SIZE=16Mb",
-                "-sUSE_OFFSET_CONVERTER=1",
-                "-sFULL-ES3=1",
-                "-sUSE_GLFW=3",
-                "-sASYNCIFY",
-                "-sASYNCIFY_IMPORTS=webserial_read,webserial_write",
-                "--js-library=src/webserial/webserial.js",
-            },
-        });
-
-        link_step.step.dependOn(&b.addInstallFileWithDir(b.path("index.html"), .prefix, "web/index.html").step);
-
-        var run = emRunStep(b, .{ .name = "zm8", .emsdk = emsdk });
-        run.step.dependOn(&link_step.step);
-        const run_cmd = b.step("run", "Run the demo for web via emrun");
-        run_cmd.dependOn(&run.step);
-
-        b.installArtifact(wasmzm8);
+    if (android_targets.len > 0) {
+        try buildAndroid(b, android_targets, optimize, options);
+    } else if (target.result.os.tag == .emscripten) {
+        try buildEmscripten(b, target, optimize);
     } else {
-        const use_libusb = b.option(bool, "use_libusb", "Use libusb instead of libserialport") orelse false;
-        const options = b.addOptions();
-        options.addOption(bool, "use_libusb", use_libusb);
-
+        const sdk = sdl.init(b, .{});
+        const ini = b.dependency("ini", .{});
         const zusb = b.dependency("zusb", .{});
 
         const exe = b.addExecutable(.{
@@ -121,7 +71,148 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-pub const EmLinkOptions = struct {
+fn buildAndroid(
+    b: *std.Build,
+    android_targets: []std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    options: *std.Build.Step.Options,
+) !void {
+    // If building with Android, initialize the tools / build
+    const android_apk: *android.APK = blk: {
+        const android_tools = android.Tools.create(b, .{
+            .api_level = .android15,
+            .build_tools_version = "35.0.0",
+            .ndk_version = "27.0.12077973",
+        });
+        const apk = android.APK.create(b, android_tools);
+
+        const key_store_file = android_tools.createKeyStore(android.CreateKey.example());
+        apk.setKeyStore(key_store_file);
+        apk.setAndroidManifest(b.path("android/AndroidManifest.xml"));
+        apk.addResourceDirectory(b.path("android/res"));
+
+        // Add Java files
+        apk.addJavaSourceFile(.{ .file = b.path("android/src/ZigSDLActivity.java") });
+
+        // Add SDL2's Java files like SDL.java, SDLActivity.java, HIDDevice.java, etc
+        const sdl_dep = b.dependency("sdlsrc", .{
+            .optimize = .ReleaseFast,
+            .target = android_targets[0],
+        });
+
+        const sdl_java_files = sdl_dep.namedWriteFiles("sdljava");
+        for (sdl_java_files.files.items) |file| {
+            apk.addJavaSourceFile(.{ .file = file.contents.copy });
+        }
+        break :blk apk;
+    };
+
+    for (android_targets) |target| {
+        const exe = b.addSharedLibrary(.{
+            .name = "zm8",
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        exe.root_module.addOptions("config", options);
+
+        {
+            const sdk = sdl.init(b, .{});
+
+            const sdl_dep = b.dependency("sdlsrc", .{
+                .optimize = .ReleaseFast,
+                .target = target,
+            });
+
+            exe.linkLibrary(sdl_dep.artifact("SDL2"));
+            exe.root_module.addImport("sdl2", sdk.getWrapperModule());
+            exe.linkLibrary(sdl_dep.artifact("hidapi"));
+        }
+
+        const ini = b.dependency("ini", .{});
+        const zusb = b.dependency("zusb", .{});
+        const zusb_module = zusb.module("zusb");
+        exe.root_module.addImport("zusb", zusb_module);
+        const libusb = b.dependency("libusb", .{
+            .optimize = .ReleaseFast,
+            .target = target,
+        });
+        const libusb_artifact = libusb.artifact("usb");
+        libusb_artifact.linkLibC();
+        exe.linkLibrary(libusb_artifact);
+        exe.root_module.addImport("ini", ini.module("ini"));
+        zusb_module.addIncludePath(b.path("include"));
+
+        const android_dep = b.dependency("zig-android-sdk", .{
+            .optimize = optimize,
+            .target = target,
+        });
+
+        exe.root_module.addImport("android", android_dep.module("android"));
+        android_apk.addArtifact(exe);
+    }
+    android_apk.installApk();
+}
+
+fn buildEmscripten(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) !void {
+    const sdk = sdl.init(b, .{});
+    const ini = b.dependency("ini", .{});
+    const emsdk = b.dependency("emsdk", .{});
+    const emsdk_sysroot = emSdkLazyPath(b, emsdk, &.{ "upstream", "emscripten" });
+    b.sysroot = emsdk_sysroot.getPath(b);
+
+    const wasmzm8 = b.addStaticLibrary(.{
+        .name = "zm8",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // one-time setup of Emscripten SDK
+    if (try emSdkSetupStep(b, emsdk)) |emsdk_setup| {
+        wasmzm8.step.dependOn(&emsdk_setup.step);
+    }
+    // add the Emscripten system include seach path
+    wasmzm8.addSystemIncludePath(emSdkLazyPath(b, emsdk, &.{ "upstream", "emscripten", "cache", "sysroot", "include" }));
+
+    const sdl_dep = b.dependency("sdlsrc", .{
+        .optimize = .ReleaseFast,
+        .target = target,
+    });
+    wasmzm8.linkLibrary(sdl_dep.artifact("SDL2"));
+
+    wasmzm8.root_module.addImport("sdl2", sdk.getWrapperModule());
+    wasmzm8.root_module.addImport("ini", ini.module("ini"));
+
+    const link_step = try emLinkStep(b, .{
+        .lib_main = wasmzm8,
+        .target = target,
+        .optimize = optimize,
+        .emsdk = emsdk,
+        .extra_args = &.{
+            "-sINITIAL_MEMORY=64Mb",
+            "-sSTACK_SIZE=16Mb",
+            "-sUSE_OFFSET_CONVERTER=1",
+            "-sFULL-ES3=1",
+            "-sUSE_GLFW=3",
+            "-sASYNCIFY",
+            "-sASYNCIFY_IMPORTS=webserial_read,webserial_write",
+            "--js-library=src/webserial/webserial.js",
+        },
+    });
+
+    link_step.step.dependOn(&b.addInstallFileWithDir(b.path("index.html"), .prefix, "web/index.html").step);
+
+    var run = emRunStep(b, .{ .name = "zm8", .emsdk = emsdk });
+    run.step.dependOn(&link_step.step);
+    const run_cmd = b.step("run", "Run the demo for web via emrun");
+    run_cmd.dependOn(&run.step);
+
+    b.installArtifact(wasmzm8);
+}
+
+const EmLinkOptions = struct {
     target: Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lib_main: *Build.Step.Compile, // the actual Zig code must be compiled to a static link library
@@ -136,7 +227,7 @@ pub const EmLinkOptions = struct {
     extra_args: []const []const u8 = &.{},
 };
 
-pub fn emLinkStep(b: *Build, options: EmLinkOptions) !*Build.Step.InstallDir {
+fn emLinkStep(b: *Build, options: EmLinkOptions) !*Build.Step.InstallDir {
     const emcc_path = emSdkLazyPath(b, options.emsdk, &.{ "upstream", "emscripten", "emcc" }).getPath(b);
     const emcc = b.addSystemCommand(&.{emcc_path});
     emcc.setName("emcc"); // hide emcc path
@@ -209,11 +300,11 @@ pub fn emLinkStep(b: *Build, options: EmLinkOptions) !*Build.Step.InstallDir {
     return install;
 }
 
-pub const EmRunOptions = struct {
+const EmRunOptions = struct {
     name: []const u8,
     emsdk: *Build.Dependency,
 };
-pub fn emRunStep(b: *Build, options: EmRunOptions) *Build.Step.Run {
+fn emRunStep(b: *Build, options: EmRunOptions) *Build.Step.Run {
     const emrun_path = b.findProgram(&.{"emrun"}, &.{}) catch emSdkLazyPath(b, options.emsdk, &.{ "upstream", "emscripten", "emrun" }).getPath(b);
     const emrun = b.addSystemCommand(&.{ emrun_path, "--browser=chrome", b.fmt("{s}/web/index.html", .{b.install_path}) });
     return emrun;

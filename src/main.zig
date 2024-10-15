@@ -5,8 +5,31 @@ const usb = @import("usb/device.zig");
 const serial = @import("serial/device.zig");
 const config = @import("config");
 const builtin = @import("builtin");
+const android = @import("android");
 
 const stdout = std.io.getStdOut().writer();
+
+/// custom standard options for Android
+pub const std_options: std.Options = if (builtin.abi == .android)
+    .{
+        .logFn = android.logFn,
+    }
+else
+    .{};
+
+/// custom panic handler for Android
+pub const panic = if (builtin.abi == .android)
+    android.panic
+else
+    std.debug.defaultPanic;
+
+export fn SDL_main() callconv(.C) void {
+    if (builtin.abi == .android) {
+        _ = std.start.callMain();
+    } else {
+        @panic("SDL_main should not be called outside of Android builds");
+    }
+}
 
 pub const os = if (builtin.os.tag != .emscripten and builtin.os.tag != .wasi) std.os else struct {
     pub const heap = struct {

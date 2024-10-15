@@ -15,9 +15,19 @@ const UsbSerial = @import("usb/serial.zig");
 const SerialPortSerial = @import("serial/serial.zig");
 const WebSerial = @import("webserial/serial.zig");
 
+const emscripten = @cImport({
+    @cInclude("emscripten.h");
+});
+
 const stdout = std.io.getStdOut().writer();
 
 const SDLHandler = @This();
+
+const EmscriptenData = struct {
+    alllocator: std.mem.Allocator,
+    ui: SDLUI,
+    m8: M8,
+};
 
 pub fn startUsb(allocator: std.mem.Allocator, preferred_usb_device: ?[]u8) !void {
     std.log.debug("Starting with SDL UI and libusb", .{});
@@ -106,20 +116,83 @@ pub fn startSerialPort(allocator: std.mem.Allocator, preferred_serial_device: ?[
 
 pub fn startWebSerial(allocator: std.mem.Allocator) !void {
     try SDL.init(.{ .video = true });
-    defer SDL.quit();
-
-    var ui = try SDLUI.init(false, true);
-    defer ui.deinit();
+    errdefer SDL.quit();
 
     const serial = WebSerial.init();
 
     var m8 = try M8.init(allocator, serial.writer(), serial.reader());
-    defer m8.deinit();
+    errdefer m8.deinit();
 
     std.log.debug("Enable display", .{});
     try m8.enableAndResetDisplay();
 
-    try startMainLoop(allocator, &ui, &m8, 10);
+    const data = try allocator.create(EmscriptenData);
+    errdefer allocator.destroy(data);
+
+    data.* = .{
+        .ui = try SDLUI.init(false, true),
+        .m8 = m8,
+        .alllocator = allocator,
+    };
+
+    emscripten.emscripten_set_main_loop_arg(webMainLoop, data, 0, true);
+}
+
+pub fn webMainLoop(ptr: ?*anyopaque) callconv(.C) void {
+    const emscripten_data: *EmscriptenData = @alignCast(@ptrCast(ptr.?));
+    var m8 = emscripten_data.m8;
+    var ui = emscripten_data.ui;
+    const allocator = emscripten_data.alllocator;
+    webLoop(allocator, &ui, &m8) catch |err| {
+        std.log.err("Error in webLoop: {}\n", .{err});
+    };
+}
+
+pub fn webLoop(allocator: std.mem.Allocator, ui: *SDLUI, m8: *M8) !void {
+    while (SDL.pollEvent()) |ev| {
+        switch (ev) {
+            .quit => {
+                emscripten.emscripten_cancel_main_loop();
+                break;
+            },
+            .key_down => |key_ev| {
+                if (key_ev.is_repeat) {
+                    break;
+                }
+                switch (key_ev.keycode) {
+                    .f4 => {
+                        if (key_ev.modifiers.get(.left_alt)) {
+                            emscripten.emscripten_cancel_main_loop();
+                            break;
+                        }
+                    },
+                    .r => try m8.resetDisplay(),
+                    .@"return" => {
+                        if (key_ev.modifiers.get(.left_alt)) {
+                            try ui.toggleFullScreen();
+                        }
+                    },
+                    else => try m8.handleKey(mapKey(key_ev.keycode), .down),
+                }
+            },
+            .key_up => |key_ev| {
+                switch (key_ev.keycode) {
+                    else => try m8.handleKey(mapKey(key_ev.keycode), .up),
+                }
+            },
+            else => {},
+        }
+    }
+
+    const commands = try m8.readCommands();
+    defer allocator.free(commands);
+
+    for (commands) |command| {
+        defer command.deinit();
+        try handleCommand(ui, command);
+    }
+
+    try ui.render();
 }
 
 fn readConfig(allocator: std.mem.Allocator) !Config {

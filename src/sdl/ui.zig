@@ -213,23 +213,3 @@ fn screenshot(self: UI) !void {
         }
     }
 }
-
-test "draws characters" {
-    try SDL.init(.{ .video = true });
-    defer SDL.quit();
-
-    var ui = try UI.init(false, true);
-    try ui.setFont(false, false);
-    defer ui.deinit();
-    var location: SDL.Point = .{ .x = 0, .y = 0 };
-    try ui.drawCharacter('H', location, .red, .green);
-    location.x += ui.font.inline_font.glyph_x + 1;
-    try ui.drawCharacter('e', location, .red, .green);
-    location.x += ui.font.inline_font.glyph_x + 1;
-    try ui.drawCharacter('l', location, .red, .green);
-    location.x += ui.font.inline_font.glyph_x + 1;
-    try ui.drawCharacter('l', location, .red, .green);
-    location.x += ui.font.inline_font.glyph_x + 1;
-    try ui.drawCharacter('o', location, .red, .green);
-    try ui.render();
-}

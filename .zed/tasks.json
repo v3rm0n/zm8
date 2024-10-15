@@ -22,5 +22,9 @@
   {
     "label": "Zig Build Run Web",
     "command": "zig build -Dtarget=wasm32-emscripten run"
+  },
+  {
+    "label": "Zig Build Android",
+    "command": "ANDROID_HOME=/Users/maidok/Library/Android/sdk zig build -Dtarget=x86_64-linux-android"
   }
 ]
