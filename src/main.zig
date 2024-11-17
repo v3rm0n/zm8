@@ -2,7 +2,7 @@ const std = @import("std");
 const M8 = @import("m8.zig");
 const Sdl = @import("sdl.zig");
 const usb = @import("usb/device.zig");
-const serial = @import("serial/device.zig");
+const serial = @import("serialport/device.zig");
 const config = @import("config");
 const builtin = @import("builtin");
 

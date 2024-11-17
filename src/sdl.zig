@@ -12,7 +12,7 @@ const UsbEventHandler = @import("usb/event_handler.zig");
 const UsbAudio = @import("usb/audio.zig");
 const usb = @import("usb/device.zig");
 const UsbSerial = @import("usb/serial.zig");
-const SerialPortSerial = @import("serial/serial.zig");
+const SerialPortSerial = @import("serialport/serial.zig");
 const WebSerial = @import("webserial/serial.zig");
 
 const stdout = std.io.getStdOut().writer();
